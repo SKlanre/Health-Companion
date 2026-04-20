@@ -279,7 +279,7 @@ const App: React.FC = () => {
       await setDoc(userDocRef, {
         ...profileWithResetDate,
         stats: initialStats
-      });
+      }, { merge: true });
       setUserProfile(profileWithResetDate);
       setStats(initialStats);
     } catch (error) {
@@ -461,6 +461,47 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRestoreStats = async () => {
+    if (!user) return;
+    
+    try {
+      // 1. Recalculate Calories from Logs
+      const todayCalories = foodLog.reduce((acc, log) => acc + log.calories, 0);
+      
+      // 2. Find most recent history entry for Goals
+      let restoredGoals = {
+        caloriesGoal: stats.caloriesGoal,
+        waterGoal: stats.waterGoal,
+        stepsGoal: stats.stepsGoal,
+        exerciseGoal: stats.exerciseGoal
+      };
+
+      if (dailyHistory.length > 0) {
+        const last = dailyHistory[0]; // Ordered by date desc
+        restoredGoals = {
+          caloriesGoal: last.caloriesGoal || stats.caloriesGoal,
+          waterGoal: last.waterGoal || stats.waterGoal,
+          stepsGoal: last.stepsGoal || stats.stepsGoal,
+          exerciseGoal: last.exerciseGoal || stats.exerciseGoal
+        };
+      }
+
+      const newStats = {
+        ...stats,
+        ...restoredGoals,
+        calories: todayCalories
+      };
+
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(userDocRef, { stats: newStats }, { merge: true });
+      setStats(newStats);
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      return false;
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -477,7 +518,18 @@ const App: React.FC = () => {
       case 'community':
         return <Community stats={stats} darkMode={darkMode} />;
       case 'profile':
-        return <Profile profile={userProfile} onReset={() => setUserProfile(null)} darkMode={darkMode} onToggleDarkMode={handleToggleDarkMode} />;
+        return <Profile 
+          profile={userProfile} 
+          history={dailyHistory}
+          onReset={() => {
+            if (userProfile) {
+              setUserProfile({ ...userProfile, onboarded: false });
+            }
+          }} 
+          onRestoreStats={handleRestoreStats}
+          darkMode={darkMode} 
+          onToggleDarkMode={handleToggleDarkMode} 
+        />;
       default:
         return <Dashboard 
           stats={stats} 
@@ -531,7 +583,7 @@ const App: React.FC = () => {
       
       {/* Onboarding Overlay */}
       {!userProfile?.onboarded && (
-        <Onboarding onComplete={handleOnboardingComplete} />
+        <Onboarding onComplete={handleOnboardingComplete} initialProfile={userProfile} />
       )}
 
       {/* Header */}

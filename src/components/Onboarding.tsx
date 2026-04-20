@@ -21,11 +21,15 @@ import { UserProfile, DailyStats, ActivityLevel, FitnessGoal, Gender, MealPrepSt
 
 interface OnboardingProps {
   onComplete: (profile: UserProfile, stats: DailyStats) => void;
+  initialProfile?: UserProfile | null;
 }
 
-const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
+const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) => {
   const [step, setStep] = useState(1);
-  const [profile, setProfile] = useState<UserProfile>({
+  const [profile, setProfile] = useState<UserProfile>(initialProfile ? {
+    ...initialProfile,
+    onboarded: false // Force onboarded false so we stay in onboarding
+  } : {
     name: '',
     age: 25,
     gender: 'male',

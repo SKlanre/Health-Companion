@@ -3,9 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "engines": {
-    "node": ">=20.0.0"
-  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -21,7 +18,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-markdown": "^10.1.0",
-    "recharts": "^2.15.0",
+    "recharts": "^3.6.0",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
