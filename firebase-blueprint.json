@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and daily statistics",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "User's display name" },
+        "age": { "type": "number", "description": "User's age" },
+        "gender": { "type": "string", "enum": ["male", "female", "other"] },
+        "weight": { "type": "number", "description": "Current weight in lbs" },
+        "height": { "type": "number", "description": "Height in cm" },
+        "activityLevel": { "type": "string", "enum": ["sedentary", "light", "moderate", "active", "very_active"] },
+        "goal": { "type": "string", "enum": ["lose_weight", "maintain", "gain_muscle"] },
+        "location": { "type": "string", "description": "User's location for local recommendations" },
+        "workoutEnvironment": { "type": "string", "enum": ["home", "gym"], "description": "Preferred workout setting" },
+        "mealPrepStyle": { "type": "string", "enum": ["self", "others", "eat_out"], "description": "How the user gets their meals" },
+        "fruitConsumption": { "type": "string", "enum": ["rarely", "sometimes", "daily"], "description": "How often the user eats fruits" },
+        "dailyBudget": { "type": "number", "description": "User's daily meal budget" },
+        "targetWeight": { "type": "number", "description": "User's target weight" },
+        "streak": { "type": "number", "description": "Consecutive days of activity" },
+        "lastActivityDate": { "type": "string", "description": "Last date the user performed an activity (YYYY-MM-DD)" },
+        "lastStatsResetDate": { "type": "string", "description": "Last date the daily stats were reset (YYYY-MM-DD)" },
+        "unitSystem": { "type": "string", "enum": ["metric", "imperial"] },
+        "onboarded": { "type": "boolean" },
+        "lastAiTip": { "type": "string" },
+        "lastAiTipTimestamp": { "type": "string" },
+        "preloadedMeals": {
+          "type": "object",
+          "properties": {
+            "breakfast": { 
+              "type": "object",
+              "properties": {
+                "content": { "type": "string" },
+                "calories": { "type": "number" }
+              }
+            },
+            "lunch": { 
+              "type": "object",
+              "properties": {
+                "content": { "type": "string" },
+                "calories": { "type": "number" }
+              }
+            },
+            "dinner": { 
+              "type": "object",
+              "properties": {
+                "content": { "type": "string" },
+                "calories": { "type": "number" }
+              }
+            },
+            "snacks": { 
+              "type": "object",
+              "properties": {
+                "content": { "type": "string" },
+                "calories": { "type": "number" }
+              }
+            }
+          }
+        },
+        "preloadedWorkout": { "type": "string" },
+        "lastMealPreloadTimestamp": { "type": "string" },
+        "darkMode": { "type": "boolean" },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "calories": { "type": "number" },
+            "caloriesGoal": { "type": "number" },
+            "water": { "type": "number" },
+            "waterGoal": { "type": "number" },
+            "steps": { "type": "number" },
+            "stepsGoal": { "type": "number" },
+            "exercise": { "type": "number" },
+            "exerciseGoal": { "type": "number" },
+            "weight": { "type": "number" },
+            "weightGoal": { "type": "number" }
+          }
+        }
+      },
+      "required": ["name", "onboarded"]
+    },
+    "FoodLogEntry": {
+      "title": "FoodLogEntry",
+      "description": "A single food log entry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "calories": { "type": "number" },
+        "analysis": { "type": "string", "description": "AI analysis of meal contents (e.g. high carb, soda detected)" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "calories", "timestamp"]
+    },
+    "WorkoutEntry": {
+      "title": "WorkoutEntry",
+      "description": "A single workout log entry",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "duration": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "duration", "timestamp"]
+    },
+    "DailyHistoryEntry": {
+      "title": "DailyHistoryEntry",
+      "description": "Historical record of daily statistics",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "calories": { "type": "number" },
+        "caloriesGoal": { "type": "number" },
+        "water": { "type": "number" },
+        "waterGoal": { "type": "number" },
+        "steps": { "type": "number" },
+        "stepsGoal": { "type": "number" },
+        "exercise": { "type": "number" },
+        "exerciseGoal": { "type": "number" },
+        "weight": { "type": "number" },
+        "weightGoal": { "type": "number" }
+      },
+      "required": ["date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Root user document containing profile and current stats"
+    },
+    "/users/{userId}/foodLogs/{logId}": {
+      "schema": "FoodLogEntry",
+      "description": "History of food entries for the user"
+    },
+    "/users/{userId}/workoutLogs/{logId}": {
+      "schema": "WorkoutEntry",
+      "description": "History of workout entries for the user"
+    },
+    "/users/{userId}/dailyHistory/{date}": {
+      "schema": "DailyHistoryEntry",
+      "description": "Historical daily statistics"
+    }
+  }
+}

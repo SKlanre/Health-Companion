@@ -1,0 +1,10 @@
+{
+  "name": "FitAI Companion",
+  "description": "A smart fitness companion with AI-powered food scanning, workout generation, and personalized health tracking.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "accelerometer",
+    "gyroscope"
+  ]
+}

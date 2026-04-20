@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches auth.uid)
+    // Fields:
+    //   - name: string (required)
+    //   - age: number (required)
+    //   - gender: string (male|female|other)
+    //   - weight: number
+    //   - height: number
+    //   - activityLevel: string
+    //   - goal: string
+    //   - onboarded: bool (required)
+    //   - stats: map (required)
+    //
+    // Collection: users/{userId}/foodLogs
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - calories: number (required)
+    //   - timestamp: timestamp (required)
+    //
+    // Collection: users/{userId}/workoutLogs
+    // Document ID: auto-generated
+    // Fields:
+    //   - title: string (required)
+    //   - duration: number (required)
+    //   - timestamp: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "samylanre@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Domain Validators
+    
+    function isValidUser(data) {
+      return hasRequiredFields(['name', 'onboarded', 'stats', 'location', 'workoutEnvironment', 'mealPrepStyle', 'fruitConsumption', 'dailyBudget', 'streak', 'unitSystem']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.location is string && data.location.size() > 0 && data.location.size() < 200 &&
+             data.workoutEnvironment in ['home', 'gym'] &&
+             data.mealPrepStyle in ['self', 'others', 'eat_out'] &&
+             data.fruitConsumption in ['rarely', 'sometimes', 'daily'] &&
+             data.dailyBudget is number && data.dailyBudget >= 0 &&
+             data.streak is number && data.streak >= 0 &&
+             data.unitSystem in ['metric', 'imperial'] &&
+             (!('lastActivityDate' in data) || (data.lastActivityDate is string && data.lastActivityDate.matches("^\\d{4}-\\d{2}-\\d{2}$"))) &&
+             (!('lastStatsResetDate' in data) || (data.lastStatsResetDate is string && data.lastStatsResetDate.matches("^\\d{4}-\\d{2}-\\d{2}$"))) &&
+             data.onboarded is bool &&
+             (!('lastAiTip' in data) || (data.lastAiTip is string && data.lastAiTip.size() < 5000)) &&
+             (!('lastAiTipTimestamp' in data) || (data.lastAiTipTimestamp is string)) &&
+             (!('preloadedMeals' in data) || (data.preloadedMeals is map)) &&
+             (!('preloadedWorkout' in data) || (data.preloadedWorkout is string && data.preloadedWorkout.size() < 10000)) &&
+             (!('lastMealPreloadTimestamp' in data) || (data.lastMealPreloadTimestamp is string)) &&
+             (!('darkMode' in data) || (data.darkMode is bool)) &&
+             (!('targetWeight' in data) || (data.targetWeight is number && data.targetWeight > 0)) &&
+             (!('age' in data) || (data.age is number && data.age >= 0 && data.age < 120)) &&
+             (!('weight' in data) || (data.weight is number && data.weight > 0)) &&
+             (!('height' in data) || (data.height is number && data.height > 0));
+    }
+
+    function isValidFoodLog(data) {
+      return hasRequiredFields(['name', 'calories', 'timestamp']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.calories is number && data.calories >= 0 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidWorkoutLog(data) {
+      return hasRequiredFields(['title', 'duration', 'timestamp']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.duration is number && data.duration >= 0 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidDailyHistory(data) {
+      return hasRequiredFields(['date', 'calories', 'water', 'steps', 'exercise', 'weight']) &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.calories is number && data.calories >= 0 &&
+             data.water is number && data.water >= 0 &&
+             data.steps is number && data.steps >= 0 &&
+             data.exercise is number && data.exercise >= 0 &&
+             data.weight is number && data.weight > 0;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data)) || isAdmin();
+      
+      match /foodLogs/{logId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidFoodLog(request.resource.data);
+        allow update: if isOwner(userId) && isValidFoodLog(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /workoutLogs/{logId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidWorkoutLog(request.resource.data);
+        allow update: if isOwner(userId) && isValidWorkoutLog(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /dailyHistory/{date} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidDailyHistory(request.resource.data);
+        allow update: if isOwner(userId) && isValidDailyHistory(request.resource.data);
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
