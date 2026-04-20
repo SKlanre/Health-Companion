@@ -261,8 +261,13 @@ const App: React.FC = () => {
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        alert("Domain Not Authorized: Please add 'health-companion-lyart.vercel.app' to Authorized Domains in your Firebase Console (Authentication > Settings).");
+      } else {
+        alert("Login failed: " + error.message);
+      }
     }
   };
 
