@@ -225,7 +225,7 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
       ],
     },
     config: {
-      thinkingConfig: { thinkingLevel: isDeep ? ThinkingLevel.HIGH : ThinkingLevel.LOW },
+      thinkingConfig: { thinkingLevel: isDeep ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -282,7 +282,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
     }`,
     config: {
       temperature: 0.7,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,

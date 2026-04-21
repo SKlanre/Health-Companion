@@ -411,13 +411,19 @@ const App: React.FC = () => {
         
         const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
         setCurrentBase64(base64Data);
-        const result = await scanFoodImage(base64Data, scanMode);
-        if (result && result.name && result.calories) {
-          setPendingFood({ ...result, analysis: result.analysis || "" });
-        } else {
-          alert("Sorry, couldn't identify the food. Please try again.");
+        try {
+          const result = await scanFoodImage(base64Data, scanMode);
+          if (result && result.name && result.calories) {
+            setPendingFood({ ...result, analysis: result.analysis || "" });
+          } else {
+            alert("Sorry, couldn't identify the food. Please try again.");
+          }
+        } catch (err) {
+          console.error("Scanning error:", err);
+          alert("Something went wrong while scanning. Please try again.");
+        } finally {
+          setIsScanning(false);
         }
-        setIsScanning(false);
       };
     };
     reader.readAsDataURL(file);

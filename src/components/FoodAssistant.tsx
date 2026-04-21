@@ -251,12 +251,30 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx?.drawImage(video, 0, 0);
+    
+    // Resize for AI efficiency (max 512px)
+    const MAX_DIM = 512;
+    let width = video.videoWidth;
+    let height = video.videoHeight;
+    
+    if (width > height) {
+      if (width > MAX_DIM) {
+        height *= MAX_DIM / width;
+        width = MAX_DIM;
+      }
+    } else {
+      if (height > MAX_DIM) {
+        width *= MAX_DIM / height;
+        height = MAX_DIM;
+      }
+    }
 
-    const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx?.drawImage(video, 0, 0, width, height);
+
+    const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
     
     try {
       const remaining = stats.caloriesGoal - stats.calories;
@@ -270,6 +288,7 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
       }
     } catch (err) {
       console.error(err);
+      setError("AI was unable to scan the image. Please try again.");
     } finally {
       setIsLoading(false);
     }
