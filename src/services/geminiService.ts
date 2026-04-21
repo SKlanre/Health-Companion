@@ -2,8 +2,8 @@
 import { GoogleGenAI, Type, ThinkingLevel, Modality } from "@google/genai";
 import { UserProfile, DailyStats, FoodLogEntry } from "../types";
 
-// Always use the process.env.GEMINI_API_KEY directly for initialization as per guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Always use the process.env.API_KEY directly for initialization as per guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null) => {
   const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment}.` : '';
