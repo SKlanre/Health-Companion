@@ -2,10 +2,26 @@
 import { GoogleGenAI, Type, ThinkingLevel, Modality } from "@google/genai";
 import { UserProfile, DailyStats, FoodLogEntry } from "../types";
 
-// Always use the process.env.API_KEY directly for initialization as per guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Support both AI Studio environment and external deployments like Vercel
+const getApiKey = () => {
+  return process.env.GEMINI_API_KEY || 
+         process.env.API_KEY || 
+         import.meta.env.VITE_GEMINI_API_KEY || 
+         import.meta.env.VITE_API_KEY;
+};
+
+const apiKey = getApiKey();
+const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+
+// Helper to check if API key is configured
+const ensureApiKey = () => {
+  if (!apiKey) {
+    throw new Error("API key is missing. For Vercel, please provide VITE_GEMINI_API_KEY in Environment Variables and redeploy.");
+  }
+};
 
 export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null) => {
+  ensureApiKey();
   const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment}.` : '';
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')} and they have a ${profile.activityLevel.replace('_', ' ')} activity level. They are located in ${profile.location}. ${envText}` : '';
   const response = await ai.models.generateContent({
@@ -26,6 +42,7 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
 };
 
 export const suggestDailyMeals = async (remainingCalories: number, profile: UserProfile | null, totalDailyGoal: number = 2000) => {
+  ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}. They are located in ${profile.location}.` : '';
   const prepText = profile ? `They usually ${profile.mealPrepStyle === 'self' ? 'cook for themselves' : profile.mealPrepStyle === 'others' ? 'have someone cook for them' : 'eat out'}. Their daily food budget is around $${profile.dailyBudget}. They eat fruits ${profile.fruitConsumption}.` : '';
   const today = new Date().toDateString();
@@ -114,6 +131,7 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
 };
 
 export const suggestMeal = async (remainingCalories: number, profile: UserProfile | null, mealType: string = 'meal', excludeItems: string[] = [], totalDailyGoal: number = 2000) => {
+  ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}. They are located in ${profile.location}.` : '';
   const prepText = profile ? `They usually ${profile.mealPrepStyle === 'self' ? 'cook for themselves' : profile.mealPrepStyle === 'others' ? 'have someone cook for them' : 'eat out'}. Their daily food budget is around ${profile.dailyBudget}. They eat fruits ${profile.fruitConsumption}.` : '';
   const today = new Date().toDateString();
@@ -164,6 +182,7 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
 };
 
 export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats, recentLogs: FoodLogEntry[] = []) => {
+  ensureApiKey();
   const prepText = `Meal Prep: ${profile.mealPrepStyle}, Fruit: ${profile.fruitConsumption}, Budget: $${profile.dailyBudget}/day.`;
   const recentFoodContext = recentLogs.length > 0 
     ? `\n\nRecent meals logged by the user include: ${recentLogs.slice(0, 5).map(l => `${l.name} (${l.calories} kcal, notes: ${l.analysis || 'none'})`).join(', ')}.`
@@ -194,6 +213,7 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
 };
 
 export const generateCheer = async (postContent: string) => {
+  ensureApiKey();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`,
@@ -205,6 +225,7 @@ export const generateCheer = async (postContent: string) => {
 };
 
 export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' = 'quick', additionalDetails?: string) => {
+  ensureApiKey();
   const isDeep = mode === 'deep';
   const detailsPrompt = additionalDetails ? `\n\nAdditional user details to consider: "${additionalDetails}"` : "";
   const response = await ai.models.generateContent({
@@ -248,6 +269,7 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
 };
 
 export const processVoiceMeal = async (transcription: string, stats: DailyStats, profile: UserProfile | null, foodLog: FoodLogEntry[] = []) => {
+  ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}.` : '';
   const recentMeals = foodLog.length > 0 
     ? `Recent meals today: ${foodLog.map(m => `${m.name} (${m.calories} kcal)`).join(', ')}.` 
@@ -307,6 +329,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
 };
 
 export const analyzeBuffet = async (base64Data: string, remainingCalories: number, profile: UserProfile | null) => {
+  ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}.` : '';
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
