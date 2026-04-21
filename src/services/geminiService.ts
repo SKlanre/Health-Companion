@@ -18,12 +18,48 @@ const ensureApiKey = () => {
   }
 };
 
+const handleGenAIError = (error: any): never => {
+  console.error("Gemini AI Error:", error);
+  let message = error.message || "";
+  
+  // If the message is a stringified JSON, try to extract the actual message
+  try {
+    if (message.startsWith('{')) {
+      const parsed = JSON.parse(message);
+      if (parsed.error && parsed.error.message) {
+        message = parsed.error.message;
+      }
+    }
+  } catch (e) {
+    // Keep original message if parsing fails
+  }
+
+  // Handle Rate Limits (429)
+  if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
+    throw new Error("AI capacity reached (Rate Limit). This happens on the free tier during high usage. Please wait 30-60 seconds and try again.");
+  }
+  
+  // Handle Key issues (401)
+  if (message.includes("401") || message.includes("API_KEY_INVALID")) {
+    throw new Error("Invalid API Key configuration. Please check your dashboard settings.");
+  }
+
+  // Handle Safety blocks
+  if (message.includes("SAFETY")) {
+    throw new Error("The AI could not process this content due to safety filters. Please try another image or text.");
+  }
+  
+  throw new Error(message || "An unexpected AI error occurred. Please try again later.");
+};
+
 export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null) => {
   ensureApiKey();
   const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment}.` : '';
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')} and they have a ${profile.activityLevel.replace('_', ' ')} activity level. They are located in ${profile.location}. ${envText}` : '';
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
 
     Format the response using Markdown:
@@ -36,7 +72,10 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
       temperature: 0.8,
     },
   });
-  return response.text;
+    return response.text;
+  } catch (err) {
+    handleGenAIError(err);
+  }
 };
 
 export const suggestDailyMeals = async (remainingCalories: number, profile: UserProfile | null, totalDailyGoal: number = 2000) => {
@@ -46,8 +85,9 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
   const today = new Date().toDateString();
   const highCalorieAlert = remainingCalories > 2800 ? "\n\nALERT: The user has a VERY HIGH calorie requirement. You MUST suggest HEAVY, CALORIE-DENSE meals. Standard healthy portions will NOT be enough. Use calorie-dense healthy fats (avocados, nuts, seeds, oils) and larger portions to reach the target." : "";
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a total daily goal of ${totalDailyGoal} kcal. ${goalText} ${prepText} ${highCalorieAlert}
     Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack. 
     
@@ -120,11 +160,15 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
     },
   });
 
-  try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("Failed to parse AI daily meals response", e);
-    return null;
+    try {
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error("Failed to parse AI daily meals response", e);
+      return null;
+    }
+  } catch (err) {
+    handleGenAIError(err);
   }
 };
 
@@ -141,8 +185,9 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
                         mealType === 'dinner' ? totalDailyGoal * 0.30 :
                         totalDailyGoal * 0.10; // snacks
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a ${totalDailyGoal} kcal goal. ${highCalorieAlert}
     Suggest a healthy ${mealType} that is EXACTLY ${Math.round(targetCalories)} kcal. 
     ${goalText} ${prepText} 
@@ -171,11 +216,15 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
     },
   });
 
-  try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("Failed to parse AI meal suggestion", e);
-    return null;
+    try {
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error("Failed to parse AI meal suggestion", e);
+      return null;
+    }
+  } catch (err) {
+    handleGenAIError(err);
   }
 };
 
@@ -186,8 +235,9 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
     ? `\n\nRecent meals logged by the user include: ${recentLogs.slice(0, 5).map(l => `${l.name} (${l.calories} kcal, notes: ${l.analysis || 'none'})`).join(', ')}.`
     : "";
   
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `The user is a ${profile.age} year old ${profile.gender} with a goal to ${profile.goal.replace('_', ' ')}. 
     Current stats: Weight: ${profile.weight}lbs, Height: ${profile.height}cm, Activity Level: ${profile.activityLevel.replace('_', ' ')}.
     Location: ${profile.location}.
@@ -207,27 +257,35 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
       temperature: 0.8,
     },
   });
-  return response.text;
+    return response.text;
+  } catch (err) {
+    handleGenAIError(err);
+  }
 };
 
 export const generateCheer = async (postContent: string) => {
   ensureApiKey();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`,
     config: {
       temperature: 0.9,
     },
   });
-  return response.text;
+    return response.text;
+  } catch (err) {
+    handleGenAIError(err);
+  }
 };
 
 export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' = 'quick', additionalDetails?: string) => {
   ensureApiKey();
   const isDeep = mode === 'deep';
   const detailsPrompt = additionalDetails ? `\n\nAdditional user details to consider: "${additionalDetails}"` : "";
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: {
       parts: [
         {
@@ -259,10 +317,14 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
   });
 
     try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("Failed to parse AI food scan response", e);
-    return null;
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error("Failed to parse AI food scan response", e);
+      return null;
+    }
+  } catch (err) {
+    handleGenAIError(err);
   }
 };
 
@@ -273,8 +335,9 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
     ? `Recent meals today: ${foodLog.map(m => `${m.name} (${m.calories} kcal)`).join(', ')}.` 
     : 'No meals logged yet today.';
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
     contents: `The user said: "${transcription}". 
     Evaluate the user's intent. They might be:
     1. Logging a meal (e.g., "I just had a burger").
@@ -318,29 +381,34 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
     },
   });
 
-  try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("Failed to parse AI voice meal response", e);
-    return null;
+    try {
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error("Failed to parse AI voice meal response", e);
+      return null;
+    }
+  } catch (err) {
+    handleGenAIError(err);
   }
 };
 
 export const analyzeBuffet = async (base64Data: string, remainingCalories: number, profile: UserProfile | null) => {
   ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}.` : '';
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: base64Data,
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: base64Data,
+            },
           },
-        },
-        {
-          text: `The user is at a buffet and has ${remainingCalories} calories remaining for the day. ${goalText}
+          {
+            text: `The user is at a buffet and has ${remainingCalories} calories remaining for the day. ${goalText}
           Analyze all available food items in the image and provide advice on what they should pick to stay on track.
           Suggest a specific plate configuration.
           
@@ -349,27 +417,31 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
             "advice": "Markdown string with advice and specific recommendations",
             "estimatedCalories": number (integer for the suggested plate)
           }`
-        },
-      ],
-    },
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          advice: { type: Type.STRING },
-          estimatedCalories: { type: Type.INTEGER },
-        },
-        required: ["advice", "estimatedCalories"],
+          },
+        ],
       },
-    },
-  });
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            advice: { type: Type.STRING },
+            estimatedCalories: { type: Type.INTEGER },
+          },
+          required: ["advice", "estimatedCalories"],
+        },
+      },
+    });
 
-  try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("Failed to parse AI buffet analysis response", e);
-    return null;
+    try {
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error("Failed to parse AI buffet analysis response", e);
+      return null;
+    }
+  } catch (err) {
+    handleGenAIError(err);
   }
 };
 
