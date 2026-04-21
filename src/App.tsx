@@ -418,9 +418,9 @@ const App: React.FC = () => {
           } else {
             alert("Sorry, couldn't identify the food. Please try again.");
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("Scanning error:", err);
-          alert("Something went wrong while scanning. Please try again.");
+          alert(`Scanning failed: ${err.message || 'Unknown error'}`);
         } finally {
           setIsScanning(false);
         }

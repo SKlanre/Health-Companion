@@ -286,9 +286,9 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
           mealName: "Buffet Selection"
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("AI was unable to scan the image. Please try again.");
+      setError(`Buffet Scan failed: ${err.message || 'AI was unable to scan the image. Please try again.'}`);
     } finally {
       setIsLoading(false);
     }
