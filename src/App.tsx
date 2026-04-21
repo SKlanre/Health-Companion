@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import Dashboard from './pages/Dashboard';
 import { 
   LayoutDashboard, 
   BarChart2, 
   Camera, 
   Plus, 
+  Mic,
+  PenLine,
   Utensils, 
   Clock, 
   X, 
@@ -11,9 +14,11 @@ import {
   Users,
   Search,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  LogIn, 
+  User as UserIcon
 } from 'lucide-react';
-import Dashboard from './pages/Dashboard';
+import FoodAssistant from './components/FoodAssistant';
 import Community from './pages/Community';
 import Progress from './pages/Progress';
 import Profile from './pages/Profile';
@@ -38,7 +43,6 @@ import {
   OperationType,
 } from './firebase';
 import type { User } from './firebase';
-import { LogIn, User as UserIcon } from 'lucide-react';
 import { useStepCounter } from './hooks/useStepCounter';
 
 const App: React.FC = () => {
@@ -65,7 +69,9 @@ const App: React.FC = () => {
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryEntry[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [scanMode, setScanMode] = useState<'quick' | 'deep'>('quick');
-  const [showScanOptions, setShowScanOptions] = useState(false);
+  const [showLogMenu, setShowLogMenu] = useState(false);
+  const [showFoodAssistant, setShowFoodAssistant] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<'voice' | 'text'>('voice');
   const [pendingFood, setPendingFood] = useState<{ name: string, calories: number } | null>(null);
   const [currentBase64, setCurrentBase64] = useState<string | null>(null);
   const [additionalDetails, setAdditionalDetails] = useState("");
@@ -446,7 +452,7 @@ const App: React.FC = () => {
 
   const triggerScan = (mode: 'quick' | 'deep') => {
     setScanMode(mode);
-    setShowScanOptions(false);
+    setShowLogMenu(false);
     fileInputRef.current?.click();
   };
 
@@ -522,7 +528,7 @@ const App: React.FC = () => {
           foodLog={foodLog}
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
-          onTriggerScan={() => setShowScanOptions(true)} 
+          onTriggerScan={() => setShowLogMenu(true)} 
         />;
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;
@@ -548,7 +554,7 @@ const App: React.FC = () => {
           foodLog={foodLog}
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
-          onTriggerScan={() => setShowScanOptions(true)} 
+          onTriggerScan={() => setShowLogMenu(true)} 
         />;
     }
   };
@@ -626,32 +632,74 @@ const App: React.FC = () => {
         {renderContent()}
       </main>
 
-      {/* Floating Action Button (Camera) */}
+      {/* Universal Log Menu (Floating over FAB) */}
       <div className="fixed bottom-24 right-6 z-20 flex flex-col items-end gap-3">
-        {showScanOptions && (
-          <div className="flex flex-col gap-2 mb-2 animate-in slide-in-from-bottom-4 duration-300">
+        {showLogMenu && (
+          <div className="flex flex-col gap-3 mb-2 animate-in slide-in-from-bottom-4 duration-300">
             <button 
-              onClick={() => triggerScan('deep')}
-              className="bg-white dark:bg-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+              onClick={() => {
+                setShowLogMenu(false);
+                triggerScan('deep');
+              }}
+              className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-3 text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95"
             >
-              <Sparkles className="w-4 h-4" /> Deep Scan (Accurate)
+              <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-900/30 flex items-center justify-center text-rose-500">
+                <Camera className="w-4 h-4" />
+              </div>
+              Scan Image
             </button>
             <button 
-              onClick={() => triggerScan('quick')}
-              className="bg-white dark:bg-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+              onClick={() => {
+                setShowLogMenu(false);
+                setAssistantMode('voice');
+                setShowFoodAssistant(true);
+              }}
+              className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-3 text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95"
             >
-              <Zap className="w-4 h-4" /> Quick Scan (Fast)
+              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
+                <Mic className="w-4 h-4" />
+              </div>
+              Voice Record
+            </button>
+            <button 
+              onClick={() => {
+                setShowLogMenu(false);
+                setAssistantMode('text');
+                setShowFoodAssistant(true);
+              }}
+              className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-3 text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95"
+            >
+              <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center text-amber-500">
+                <PenLine className="w-4 h-4" />
+              </div>
+              Type Meal
             </button>
           </div>
         )}
         <button 
-          onClick={() => setShowScanOptions(!showScanOptions)}
+          onClick={() => setShowLogMenu(!showLogMenu)}
           disabled={isScanning}
-          className={`p-4 gradient-bg rounded-[20px] shadow-lg text-white transition-all transform active:scale-95 hover:scale-105 ${isScanning ? 'opacity-50' : ''}`}
+          className={`w-16 h-16 gradient-bg rounded-[24px] shadow-2xl text-white transition-all transform active:scale-90 hover:scale-105 flex items-center justify-center ${isScanning ? 'opacity-50' : ''}`}
         >
-          {isScanning ? <Clock className="w-6 h-6 animate-spin" /> : (showScanOptions ? <X className="w-6 h-6" /> : <Camera className="w-6 h-6" />)}
+          {isScanning ? (
+            <Clock className="w-8 h-8 animate-spin" />
+          ) : (
+            showLogMenu ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />
+          )}
         </button>
       </div>
+
+      <FoodAssistant 
+        isOpen={showFoodAssistant} 
+        onClose={() => setShowFoodAssistant(false)}
+        stats={stats}
+        userProfile={userProfile}
+        foodLog={foodLog}
+        onLogMeal={(name, calories, analysis) => {
+          handleAddFood(name, calories, analysis);
+        }}
+        initialMode={assistantMode}
+      />
 
       {/* AI Scanning Overlay */}
       {isScanning && (

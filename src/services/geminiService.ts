@@ -49,6 +49,11 @@ const handleGenAIError = (error: any): never => {
     throw new Error("The AI could not process this content due to safety filters. Please try another image or text.");
   }
   
+  // Handle 404 Missing Model
+  if (message.includes("404") || message.includes("NOT_FOUND")) {
+    throw new Error("The AI model requested is currently unavailable in your region. Please try again or contact support if this persists.");
+  }
+  
   throw new Error(message || "An unexpected AI error occurred. Please try again later.");
 };
 
@@ -59,7 +64,7 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
 
     Format the response using Markdown:
@@ -87,7 +92,7 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a total daily goal of ${totalDailyGoal} kcal. ${goalText} ${prepText} ${highCalorieAlert}
     Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack. 
     
@@ -187,7 +192,7 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a ${totalDailyGoal} kcal goal. ${highCalorieAlert}
     Suggest a healthy ${mealType} that is EXACTLY ${Math.round(targetCalories)} kcal. 
     ${goalText} ${prepText} 
@@ -237,7 +242,7 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `The user is a ${profile.age} year old ${profile.gender} with a goal to ${profile.goal.replace('_', ' ')}. 
     Current stats: Weight: ${profile.weight}lbs, Height: ${profile.height}cm, Activity Level: ${profile.activityLevel.replace('_', ' ')}.
     Location: ${profile.location}.
@@ -267,7 +272,7 @@ export const generateCheer = async (postContent: string) => {
   ensureApiKey();
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`,
     config: {
       temperature: 0.9,
@@ -285,7 +290,7 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
   const detailsPrompt = additionalDetails ? `\n\nAdditional user details to consider: "${additionalDetails}"` : "";
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: {
       parts: [
         {
@@ -337,7 +342,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
     contents: `The user said: "${transcription}". 
     Evaluate the user's intent. They might be:
     1. Logging a meal (e.g., "I just had a burger").
@@ -398,7 +403,7 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}.` : '';
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-flash-latest',
       contents: {
         parts: [
           {

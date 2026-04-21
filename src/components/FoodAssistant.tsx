@@ -25,14 +25,15 @@ interface Props {
   userProfile: UserProfile | null;
   foodLog: FoodLogEntry[];
   onLogMeal: (name: string, calories: number, analysis?: string) => void;
+  initialMode?: 'voice' | 'text';
 }
 
-const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, foodLog, onLogMeal }) => {
+const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, foodLog, onLogMeal, initialMode = 'voice' }) => {
   const [activeTab, setActiveTab] = useState<'voice' | 'buffet'>('voice');
   const [isListening, setIsListening] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [transcription, setTranscription] = useState("");
-  const [isManualInput, setIsManualInput] = useState(false);
+  const [isManualInput, setIsManualInput] = useState(initialMode === 'text');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,12 +60,16 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
       return;
     }
 
+    setIsManualInput(initialMode === 'text');
+    setTranscription("");
+    setResult(null);
+
     if (activeTab === 'buffet') {
       startCamera();
     } else {
       stopCamera();
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, initialMode]);
 
   const startCamera = async () => {
     try {
@@ -93,10 +98,19 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
     }
   };
 
-  const startListening = () => {
+  const startListening = async () => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) {
       setError("Speech recognition is not supported in this browser. Try Chrome or Safari.");
+      return;
+    }
+
+    try {
+      // Proactively request microphone permission to trigger the browser prompt
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err: any) {
+      console.error("Microphone access error:", err);
+      setError("Microphone access denied. Please allow microphone access in your browser's site settings to use voice logging.");
       return;
     }
 
@@ -135,7 +149,7 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
       setIsListening(false);
       setIsInitializing(false);
       if (event.error === 'not-allowed') {
-        setError("Microphone access denied. Please allow microphone access in your browser settings.");
+        setError("Microphone access denied. Please allow microphone access in your browser's site settings to use voice logging.");
       } else if (event.error === 'network') {
         setError("Connection lost. Please check your internet and try again.");
       } else if (event.error === 'no-speech') {
@@ -412,8 +426,8 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                     disabled={isLoading}
                     className="w-full py-4 gradient-bg text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30 disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-95"
                   >
-                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronRight className="w-5 h-5" />}
-                    Analyze & Log Meal
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                    Estimate Calories with AI
                   </button>
                 </div>
               )}
