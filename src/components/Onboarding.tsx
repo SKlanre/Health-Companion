@@ -15,7 +15,9 @@ import {
   Apple,
   Wallet,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Plus,
+  Minus
 } from 'lucide-react';
 import { UserProfile, DailyStats, ActivityLevel, FitnessGoal, Gender, MealPrepStyle, FruitConsumption } from '../types';
 
@@ -32,6 +34,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
   } : {
     name: '',
     age: 25,
+    ageRange: '21-30',
     gender: 'male',
     weight: 165,
     height: 175,
@@ -186,17 +189,29 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
             </div>
 
             <div className="space-y-4">
-              <label className="block text-sm font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Age</label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="13"
-                  max="100"
-                  className="flex-1 h-2 bg-gray-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  value={profile.age}
-                  onChange={(e) => setProfile({ ...profile, age: parseInt(e.target.value) })}
-                />
-                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 w-12">{profile.age}</span>
+              <label className="block text-sm font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Age Range</label>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { range: '10-15', age: 13 },
+                  { range: '16-20', age: 18 },
+                  { range: '21-30', age: 25 },
+                  { range: '31-40', age: 35 },
+                  { range: '41-50', age: 45 },
+                  { range: '51-60', age: 55 },
+                  { range: '60+', age: 65 }
+                ].map((item) => (
+                  <button
+                    key={item.range}
+                    onClick={() => setProfile({ ...profile, ageRange: item.range, age: item.age })}
+                    className={`p-4 rounded-2xl font-bold transition-all ${
+                      profile.ageRange === item.range 
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20' 
+                      : 'bg-white dark:bg-slate-900 border-2 border-gray-50 dark:border-slate-800 text-gray-500 dark:text-slate-400 hover:border-indigo-100'
+                    }`}
+                  >
+                    {item.range}
+                  </button>
+                ))}
               </div>
             </div>
           </motion.div>
@@ -237,11 +252,31 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                     <Scale className="w-5 h-5 text-rose-500" />
                     <span className="font-black text-gray-900 dark:text-white">Weight</span>
                   </div>
-                  <span className="text-2xl font-black text-rose-500">
-                    {profile.unitSystem === 'imperial' 
-                      ? `${profile.weight} lbs` 
-                      : `${Math.round(profile.weight * 0.453592)} kg`}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => {
+                        const amount = profile.unitSystem === 'imperial' ? 1 : Math.round(1 / 0.453592);
+                        setProfile({ ...profile, weight: Math.max(80, profile.weight - amount) });
+                      }}
+                      className="p-1 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-500 hover:bg-rose-100 transition-colors"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <span className="text-xl font-black text-rose-500 min-w-[80px] text-center">
+                      {profile.unitSystem === 'imperial' 
+                        ? `${profile.weight} lbs` 
+                        : `${Math.round(profile.weight * 0.453592)} kg`}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        const amount = profile.unitSystem === 'imperial' ? 1 : Math.round(1 / 0.453592);
+                        setProfile({ ...profile, weight: Math.min(450, profile.weight + amount) });
+                      }}
+                      className="p-1 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-500 hover:bg-rose-100 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="range"
@@ -263,11 +298,25 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                     <Ruler className="w-5 h-5 text-blue-500" />
                     <span className="font-black text-gray-900 dark:text-white">Height</span>
                   </div>
-                  <span className="text-2xl font-black text-blue-500">
-                    {profile.unitSystem === 'imperial' 
-                      ? `${Math.floor(profile.height / 30.48)}'${Math.round((profile.height % 30.48) / 2.54)}"` 
-                      : `${profile.height} cm`}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setProfile({ ...profile, height: Math.max(120, profile.height - 1) })}
+                      className="p-1 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-500 hover:bg-blue-100 transition-colors"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <span className="text-xl font-black text-blue-500 min-w-[80px] text-center">
+                      {profile.unitSystem === 'imperial' 
+                        ? `${Math.floor(profile.height / 30.48)}'${Math.round((profile.height % 30.48) / 2.54)}"` 
+                        : `${profile.height} cm`}
+                    </span>
+                    <button 
+                      onClick={() => setProfile({ ...profile, height: Math.min(230, profile.height + 1) })}
+                      className="p-1 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-500 hover:bg-blue-100 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="range"

@@ -11,6 +11,7 @@ export type FruitConsumption = 'rarely' | 'sometimes' | 'daily';
 export interface UserProfile {
   name: string;
   age: number;
+  ageRange?: string;
   gender: Gender;
   weight: number;
   height: number;

@@ -5,9 +5,7 @@ import { UserProfile, DailyStats, FoodLogEntry } from "../types";
 // Support both AI Studio environment and external deployments like Vercel
 const getApiKey = () => {
   return process.env.GEMINI_API_KEY || 
-         process.env.API_KEY || 
-         import.meta.env.VITE_GEMINI_API_KEY || 
-         import.meta.env.VITE_API_KEY;
+         process.env.API_KEY;
 };
 
 const apiKey = getApiKey();

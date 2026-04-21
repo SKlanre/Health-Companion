@@ -84,6 +84,11 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
       <div className="grid grid-cols-2 gap-4">
         <ProfileStat icon={<Zap className="text-amber-500 fill-amber-500" />} label="Streak" value={`${profile.streak} Days`} />
         <ProfileStat 
+          icon={<Heart className="text-purple-500" />} 
+          label="Age Range" 
+          value={profile.ageRange || `${profile.age}`} 
+        />
+        <ProfileStat 
           icon={<Scale className="text-rose-500" />} 
           label="Weight" 
           value={profile.unitSystem === 'metric' 
