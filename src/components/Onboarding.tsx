@@ -679,20 +679,30 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
           )}
           
           {step < totalSteps ? (
-            <button 
-              onClick={nextStep}
-              disabled={
-                (step === 1 && !profile.name) || 
-                (step === 2 && !profile.location) ||
-                (step === 11 && profile.goal !== 'maintain' && (
-                  (profile.unitSystem === 'imperial' ? (profile.targetWeight || profile.weight) * 0.453592 : (profile.targetWeight || profile.weight)) / ((profile.height / 100) * (profile.height / 100)) < 18.5 ||
-                  (profile.unitSystem === 'imperial' ? (profile.targetWeight || profile.weight) * 0.453592 : (profile.targetWeight || profile.weight)) / ((profile.height / 100) * (profile.height / 100)) > 30.0
-                ))
-              }
-              className="flex-1 p-5 gradient-bg rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 disabled:opacity-50"
-            >
-              Next <ChevronRight className="w-6 h-6" />
-            </button>
+            <div className="flex-1 flex flex-col gap-3">
+              <button 
+                onClick={nextStep}
+                disabled={
+                  (step === 1 && !profile.name) || 
+                  (step === 2 && !profile.location) ||
+                  (step === 11 && profile.goal !== 'maintain' && (
+                    (profile.unitSystem === 'imperial' ? (profile.targetWeight || profile.weight) * 0.453592 : (profile.targetWeight || profile.weight)) / ((profile.height / 100) * (profile.height / 100)) < 18.5 ||
+                    (profile.unitSystem === 'imperial' ? (profile.targetWeight || profile.weight) * 0.453592 : (profile.targetWeight || profile.weight)) / ((profile.height / 100) * (profile.height / 100)) > 30.0
+                  ))
+                }
+                className="w-full p-5 gradient-bg rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 disabled:opacity-50"
+              >
+                Next <ChevronRight className="w-6 h-6" />
+              </button>
+              {initialProfile && (
+                <button 
+                  onClick={nextStep}
+                  className="w-full py-2 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest hover:opacity-70 transition-all"
+                >
+                  Skip Step (Keep Previous)
+                </button>
+              )}
+            </div>
           ) : (
             <button 
               onClick={handleFinish}
