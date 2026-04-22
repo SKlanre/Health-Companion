@@ -57,20 +57,26 @@ const handleGenAIError = (error: any): never => {
   throw new Error(message || "An unexpected AI error occurred. Please try again later.");
 };
 
-export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null) => {
+export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null, focusArea?: string) => {
   ensureApiKey();
   const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment}.` : '';
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')} and they have a ${profile.activityLevel.replace('_', ' ')} activity level. They are located in ${profile.location}. ${envText}` : '';
+  const focusText = focusArea ? `The user wants to FOCUS on: ${focusArea}.` : '';
   
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-flash-latest',
-    contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
+    contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} ${focusText}
+    Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
+    If a focus area is provided, the exercises MUST primarily target that area.
 
     Format the response using Markdown:
     - Start with a catchy # Heading
     - Use ## Subheadings for sections
     - Provide 2-3 brief bullet points on the benefits
+    - List the exercises clearly.
+    - CRITICAL: For EVERY exercise suggested, include a link to search for it on YouTube. 
+      Format as: [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+[exercise+name])
     - Include a 'Pro-tip' for form in a blockquote or bold text
     - Keep it motivating and punchy.`,
     config: {
@@ -80,6 +86,54 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
     return response.text;
   } catch (err) {
     handleGenAIError(err);
+  }
+};
+
+export const recommendFocusArea = async (profile: UserProfile | null, stats: DailyStats, foodHistory: FoodLogEntry[]) => {
+  ensureApiKey();
+  if (!profile) return "General Fitness";
+  
+  const goalText = `Goal: ${profile.goal.replace('_', ' ')}. Weight: ${profile.weight}lbs. History: ${foodHistory.length} meals logged.`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest',
+      contents: `Based on the following data:
+      ${goalText}
+      Current Day Progress: ${stats.calories}/${stats.caloriesGoal} kcal, ${stats.exercise}/${stats.exerciseGoal} mins exercise.
+      
+      Recommend ONE primary body area or exercise type the user should focus on today. 
+      Options include: Cardio, Legs, Biceps, Triceps, Back, Chest, Shoulders, Core (Abs), or Full Body.
+      
+      Provide a 1-sentence justification.
+      
+      Format your response as a JSON object:
+      {
+        "area": "Cardio | Legs | Biceps | Triceps | Back | Chest | Shoulders | Core | Full Body",
+        "reason": "Brief justification"
+      }`,
+      config: {
+        temperature: 0.7,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            area: { type: Type.STRING },
+            reason: { type: Type.STRING }
+          },
+          required: ["area", "reason"]
+        }
+      }
+    });
+    
+    try {
+      return JSON.parse(response.text);
+    } catch (e) {
+      return { area: "Full Body", reason: "AI was unsure, so go for a balanced workout!" };
+    }
+  } catch (err) {
+    console.error("Focus area recommendation failed", err);
+    return { area: "Full Body", reason: "Let's keep it moving with a total body session." };
   }
 };
 

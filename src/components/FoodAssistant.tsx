@@ -33,6 +33,7 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
   const [isListening, setIsListening] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [transcription, setTranscription] = useState("");
+  const [interimTranscription, setInterimTranscription] = useState("");
   const [isManualInput, setIsManualInput] = useState(initialMode === 'text');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const recognitionRef = useRef<any>(null);
+  const transcriptionRef = useRef("");
 
   useEffect(() => {
     if (!isOpen) {
@@ -110,7 +112,11 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
       await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err: any) {
       console.error("Microphone access error:", err);
-      setError("Microphone access denied. Please allow microphone access in your browser's site settings to use voice logging.");
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setError("Microphone permission was denied. Please click the camera/mic icon in your address bar and allow access.");
+      } else {
+        setError(`Microphone error: ${err.message || 'Access denied'}. Please check your system settings.`);
+      }
       return;
     }
 
@@ -121,14 +127,24 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
     recognition.lang = 'en-US';
 
     recognition.onresult = (event: any) => {
+      let final = "";
       let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          setTranscription(prev => prev + " " + event.results[i][0].transcript);
+          final += (final ? " " : "") + transcript;
         } else {
-          interim += event.results[i][0].transcript;
+          interim += (interim ? " " : "") + transcript;
         }
       }
+      
+      const fullText = (final.trim() + " " + interim.trim()).trim();
+      transcriptionRef.current = fullText;
+      
+      if (final) {
+        setTranscription(final.trim());
+      }
+      setInterimTranscription(interim.trim());
     };
 
     recognition.onstart = () => {
@@ -177,6 +193,16 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
+    
+    // Use the latest text from the ref (includes interim)
+    const text = transcriptionRef.current.trim();
+    if (text && !isManualInput) {
+      handleProcessVoice(text);
+    } else if (!isManualInput) {
+      setError("I didn't catch that. Please speak louder or try again.");
+    }
+    
+    setInterimTranscription("");
   };
 
   const stopSpeech = () => {
@@ -234,13 +260,15 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
     }
   };
 
-  const handleProcessVoice = async () => {
-    if (!transcription.trim()) return;
+  const handleProcessVoice = async (textToProcess?: string) => {
+    const finalTranscription = textToProcess || transcription;
+    if (!finalTranscription.trim()) return;
+    
     setIsLoading(true);
     setResult(null);
     setError(null);
     try {
-      const data = await processVoiceMeal(transcription, stats, userProfile, foodLog);
+      const data = await processVoiceMeal(finalTranscription, stats, userProfile, foodLog);
       if (data) {
         setResult(data);
         // Auto-speak the response if it was a voice-initiated flow and not manual input
@@ -357,26 +385,41 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                 <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-8 rounded-[32px] border border-indigo-100/50 dark:border-indigo-900/30 flex flex-col items-center text-center">
                   <button 
                     onClick={toggleListening}
-                    disabled={isInitializing}
+                    disabled={isInitializing || isLoading}
                     className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${
-                      isListening 
-                      ? 'bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-200 dark:shadow-rose-900/40' 
-                      : 'bg-white dark:bg-slate-800 text-indigo-500 shadow-sm hover:scale-105'
+                      isLoading 
+                      ? 'bg-indigo-100 dark:bg-slate-800 text-indigo-500'
+                      : isListening 
+                        ? 'bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-200 dark:shadow-rose-900/40' 
+                        : 'bg-white dark:bg-slate-800 text-indigo-500 shadow-sm hover:scale-105'
                     } ${isInitializing ? 'opacity-50 cursor-wait' : ''}`}
                   >
                     {isInitializing ? (
+                      <Loader2 className="w-10 h-10 animate-spin" />
+                    ) : isLoading ? (
                       <Loader2 className="w-10 h-10 animate-spin" />
                     ) : (
                       isListening ? <MicOff className="w-10 h-10" /> : <Mic className="w-10 h-10" />
                     )}
                   </button>
                   <div className="mt-6">
-                    <p className="text-slate-800 dark:text-white font-black text-xl mb-2">
-                      {isInitializing ? "Initializing..." : isListening ? "Listening to you..." : "Tap to Speak"}
+                    <p className="max-w-[80%] mx-auto text-slate-800 dark:text-white font-black text-xl mb-2">
+                      {isInitializing ? "Initializing..." : isLoading ? "AI is Analyzing..." : isListening ? "Listening to you..." : "Tap to Speak"}
                     </p>
-                    <p className="text-slate-400 dark:text-slate-500 text-sm font-medium italic">
-                      "I'm eating a grilled chicken salad with avocado..."
-                    </p>
+                    
+                    {isListening && (
+                      <div className="mt-4 px-4 py-2 bg-white/50 dark:bg-slate-800/50 rounded-2xl backdrop-blur-sm border border-indigo-100/30 min-h-[60px] flex items-center justify-center">
+                        <p className="text-slate-600 dark:text-slate-300 font-medium italic animate-pulse">
+                          {interimTranscription || transcription || "Say something like 'I just had a salad'..."}
+                        </p>
+                      </div>
+                    )}
+
+                    {!isListening && !isLoading && !transcription && (
+                      <p className="text-slate-400 dark:text-slate-500 text-sm font-medium italic">
+                        "I'm eating a grilled chicken salad with avocado..."
+                      </p>
+                    )}
                     <button 
                       onClick={() => setIsManualInput(true)}
                       className="mt-4 text-indigo-600 dark:text-indigo-400 text-xs font-black underline underline-offset-4 tracking-widest uppercase"
@@ -422,12 +465,12 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                     <p className="text-slate-700 dark:text-slate-300 font-medium">{transcription}</p>
                   </div>
                   <button 
-                    onClick={handleProcessVoice}
+                    onClick={() => handleProcessVoice()}
                     disabled={isLoading}
                     className="w-full py-4 gradient-bg text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30 disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-95"
                   >
                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                    Estimate Calories with AI
+                    {isLoading ? "Analyzing..." : "Estimate Calories with AI"}
                   </button>
                 </div>
               )}
@@ -493,7 +536,13 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                     </button>
                   </div>
                   <div className="prose prose-sm prose-slate dark:prose-invert max-w-none">
-                    <ReactMarkdown>{result.response}</ReactMarkdown>
+                    <ReactMarkdown 
+                      components={{
+                        a: ({ node, ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />
+                      }}
+                    >
+                      {result.response}
+                    </ReactMarkdown>
                   </div>
                 </div>
               ) : result.analysis ? (
@@ -523,7 +572,13 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                     <span className="text-[10px] font-black uppercase tracking-widest">AI Expert Advice</span>
                   </div>
                   <div className="prose prose-sm prose-slate dark:prose-invert max-w-none">
-                    <ReactMarkdown>{result.advice}</ReactMarkdown>
+                    <ReactMarkdown 
+                      components={{
+                        a: ({ node, ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />
+                      }}
+                    >
+                      {result.advice}
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -536,6 +591,8 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                     onClose();
                     setResult(null);
                     setTranscription("");
+                    setInterimTranscription("");
+                    transcriptionRef.current = "";
                   }}
                   className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-emerald-100 dark:shadow-emerald-900/20 hover:scale-[1.02] active:scale-95 transition-all"
                 >
@@ -549,6 +606,8 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
                   onClick={() => {
                     setResult(null);
                     setTranscription("");
+                    setInterimTranscription("");
+                    transcriptionRef.current = "";
                   }}
                   className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
                 >

@@ -24,6 +24,7 @@ import { auth, db, doc, setDoc } from '../firebase';
 import CircularProgress from '../components/CircularProgress';
 import ReactMarkdown from 'react-markdown';
 import FoodAssistant from '../components/FoodAssistant';
+import WorkoutFocus from '../components/WorkoutFocus';
 
 interface Props {
   stats: DailyStats;
@@ -524,13 +525,11 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
           </div>
         )}
 
-        <RecommendButton 
-          icon={<Zap className="w-5 h-5 text-purple-500" />} 
-          title="Generate a quick 5-min workout"
-          subtitle={userProfile?.preloadedWorkout ? "Ready to view instantly" : "AI-tailored to your fitness level"}
-          bgColor="bg-purple-50 dark:bg-purple-950/30"
-          onClick={handleSuggestExercise}
-          isLoading={isPreloading}
+        <WorkoutFocus 
+          stats={stats}
+          userProfile={userProfile}
+          foodLog={foodLog}
+          onShowResult={(title, content) => setAiModalContent({ title, content, isLoading: false })}
         />
       </div>
 
@@ -671,7 +670,13 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
                 </div>
               ) : (
                 <div className="markdown-body">
-                  <ReactMarkdown>{aiModalContent.content}</ReactMarkdown>
+                  <ReactMarkdown 
+                    components={{
+                      a: ({ node, ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />
+                    }}
+                  >
+                    {aiModalContent.content}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>

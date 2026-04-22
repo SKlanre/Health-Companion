@@ -37,6 +37,7 @@ export interface UserProfile {
     };
   };
   preloadedWorkout?: string;
+  preloadedFocusAreaRecommendation?: string;
   lastMealPreloadTimestamp?: string;
   darkMode?: boolean;
   hasAcceptedTerms?: boolean;
