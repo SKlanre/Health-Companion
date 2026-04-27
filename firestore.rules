@@ -112,9 +112,109 @@ service cloud.firestore {
              data.weight is number && data.weight > 0;
     }
 
+    // Community Domain Validations
+    function isValidCommunity(data) {
+      return hasRequiredFields(['name', 'creatorId', 'isPrivate', 'type', 'creatorName']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.description is string && data.description.size() < 2000 &&
+             data.creatorId == request.auth.uid &&
+             data.isPrivate is bool &&
+             data.type in ['challenge', 'group'] &&
+             data.creatorName is string &&
+             (!('image' in data) || (data.image is string && data.image.size() < 2000));
+    }
+
+    function isValidFeedPost(data) {
+      return hasRequiredFields(['authorId', 'authorName', 'content', 'timestamp']) &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 5000 &&
+             data.timestamp is timestamp &&
+             (!('image' in data) || (data.image is string && data.image.size() < 2000)) &&
+             (!('likes' in data) || (data.likes is number)) &&
+             (!('comments' in data) || (data.comments is number));
+    }
+
+    function isValidMessage(data) {
+      return hasRequiredFields(['senderId', 'senderName', 'text', 'timestamp']) &&
+             data.senderId == request.auth.uid &&
+             data.senderName is string &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidVideo(data) {
+      return hasRequiredFields(['title', 'videoUrl', 'uploaderId', 'uploaderName', 'timestamp']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.videoUrl is string && data.videoUrl.size() < 2000 &&
+             data.uploaderId == request.auth.uid &&
+             data.uploaderName is string &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isCommunityMember(communityId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/communities/$(communityId)/members/$(request.auth.uid));
+    }
+
+    function isCommunityAdmin(communityId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/communities/$(communityId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /communities/{communityId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidId(communityId) && isValidCommunity(request.resource.data);
+      allow update: if (isAuthenticated() && isValidId(communityId) && (
+        (isCommunityAdmin(communityId) && isValidCommunity(request.resource.data)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membersCount']))
+      )) || isAdmin();
+      allow delete: if isCommunityAdmin(communityId) || isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isValidId(messageId) && (isCommunityMember(communityId) || isAdmin());
+        allow create: if isValidId(messageId) && isCommunityMember(communityId) && isValidMessage(request.resource.data);
+        allow delete: if isValidId(messageId) && (isCommunityAdmin(communityId) || isOwner(resource.data.senderId) || isAdmin());
+      }
+
+      match /members/{userId} {
+        allow read: if isValidId(userId) && (isOwner(userId) || isCommunityMember(communityId) || isAdmin());
+        allow create: if isValidId(userId) && isAuthenticated() && (
+          (userId == request.auth.uid && !get(/databases/$(database)/documents/communities/$(communityId)).data.isPrivate) ||
+          isCommunityAdmin(communityId)
+        );
+        allow delete: if isValidId(userId) && (isOwner(userId) || isCommunityAdmin(communityId) || isAdmin());
+      }
+
+      match /joinRequests/{userId} {
+        allow read: if isValidId(userId) && (isCommunityAdmin(communityId) || isOwner(userId) || isAdmin());
+        allow create: if isValidId(userId) && isAuthenticated() && userId == request.auth.uid && get(/databases/$(database)/documents/communities/$(communityId)).data.isPrivate;
+        allow update: if isValidId(userId) && isCommunityAdmin(communityId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+        allow delete: if isValidId(userId) && (isCommunityAdmin(communityId) || isOwner(userId) || isAdmin());
+      }
+
+      match /videos/{videoId} {
+        allow read: if isValidId(videoId) && (isCommunityMember(communityId) || isAdmin());
+        allow create: if isValidId(videoId) && isCommunityAdmin(communityId) && isValidVideo(request.resource.data);
+        allow delete: if isValidId(videoId) && (isCommunityAdmin(communityId) || isAdmin());
+      }
+    }
+
+    match /feed/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidId(postId) && isValidFeedPost(request.resource.data);
+      allow update: if (isAuthenticated() && isValidId(postId) && (
+        (isOwner(resource.data.authorId) && isValidFeedPost(request.resource.data)) || 
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'comments']))
+      )) || isAdmin();
+      allow delete: if isOwner(resource.data.authorId) || isAdmin();
+    }
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();

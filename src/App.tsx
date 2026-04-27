@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, 
   BarChart2, 
@@ -16,7 +17,9 @@ import {
   Sparkles,
   RefreshCw,
   LogIn, 
-  User as UserIcon
+  User as UserIcon,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import FoodAssistant from './components/FoodAssistant';
 import Community from './pages/Community';
@@ -49,7 +52,9 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [notification, setNotification] = useState<{message: string, type: 'error' | 'success'} | null>(null);
   
   const [stats, setStats] = useState<DailyStats>({
     calories: 0,
@@ -219,6 +224,9 @@ const App: React.FC = () => {
           setStats(currentStats);
         }
       }
+      // Only set loaded to true AFTER we've decided if snapshot exists or not
+      // This prevents the onboarding from popping up for a split second for existing users
+      setIsProfileLoaded(true);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
     });
@@ -270,9 +278,9 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error("Login failed", error);
       if (error.code === 'auth/unauthorized-domain') {
-        alert(`Domain Not Authorized: Please add '${window.location.hostname}' to Authorized Domains in your Firebase Console (Authentication > Settings).`);
+        showNotification(`Domain Not Authorized: Please add '${window.location.hostname}' to Authorized Domains in your Firebase Console (Authentication > Settings).`);
       } else {
-        alert("Login failed: " + error.message);
+        showNotification("Login failed: " + error.message);
       }
     }
   };
@@ -382,6 +390,11 @@ const App: React.FC = () => {
     }
   };
 
+  const showNotification = (message: string, type: 'error' | 'success' = 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -417,19 +430,19 @@ const App: React.FC = () => {
         
         const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
         setCurrentBase64(base64Data);
-        try {
-          const result = await scanFoodImage(base64Data, scanMode);
-          if (result && result.name && result.calories) {
-            setPendingFood({ ...result, analysis: result.analysis || "" });
-          } else {
-            alert("Sorry, couldn't identify the food. Please try again.");
+          try {
+            const result = await scanFoodImage(base64Data, scanMode);
+            if (result && result.name && result.calories) {
+              setPendingFood({ ...result, analysis: result.analysis || "" });
+            } else {
+              showNotification("Sorry, couldn't identify the food. Please try again.");
+            }
+          } catch (err: any) {
+            console.error("Scanning error:", err);
+            showNotification(err.message || 'Scanning failed. Please try again.');
+          } finally {
+            setIsScanning(false);
           }
-        } catch (err: any) {
-          console.error("Scanning error:", err);
-          alert(`Scanning failed: ${err.message || 'Unknown error'}`);
-        } finally {
-          setIsScanning(false);
-        }
       };
     };
     reader.readAsDataURL(file);
@@ -445,7 +458,7 @@ const App: React.FC = () => {
       setPendingFood(result);
       setAdditionalDetails("");
     } else {
-      alert("Sorry, couldn't refine the estimate. Please try again.");
+      showNotification("Sorry, couldn't refine the estimate. Please try again.");
     }
     setIsRefining(false);
   };
@@ -519,6 +532,31 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateFullProfile = async (profile: UserProfile, newStats: DailyStats) => {
+    if (!user) return;
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      // Keep existing calories progress but update goals
+      const mergedStats = {
+        ...newStats,
+        calories: stats.calories,
+        water: stats.water,
+        steps: stats.steps,
+        exercise: stats.exercise
+      };
+      
+      await setDoc(userDocRef, { 
+        ...profile, 
+        stats: mergedStats 
+      }, { merge: true });
+      
+      setUserProfile(profile);
+      setStats(mergedStats);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -533,7 +571,7 @@ const App: React.FC = () => {
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;
       case 'community':
-        return <Community stats={stats} darkMode={darkMode} />;
+        return <Community userProfile={userProfile} />;
       case 'profile':
         return <Profile 
           profile={userProfile} 
@@ -544,6 +582,7 @@ const App: React.FC = () => {
             }
           }} 
           onRestoreStats={handleRestoreStats}
+          onUpdateFullProfile={handleUpdateFullProfile}
           darkMode={darkMode} 
           onToggleDarkMode={handleToggleDarkMode} 
         />;
@@ -564,6 +603,15 @@ const App: React.FC = () => {
       <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 transition-colors duration-300">
         <div className="w-16 h-16 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
         <p className="text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs">Initializing FitAI...</p>
+      </div>
+    );
+  }
+
+  if (user && !isProfileLoaded) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 transition-colors duration-300">
+        <div className="w-16 h-16 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs">Loading Profile...</p>
       </div>
     );
   }
@@ -599,7 +647,7 @@ const App: React.FC = () => {
       />
       
       {/* Onboarding Overlay */}
-      {!userProfile?.onboarded && (
+      {isProfileLoaded && !userProfile?.onboarded && (
         <Onboarding onComplete={handleOnboardingComplete} initialProfile={userProfile} />
       )}
 
@@ -700,6 +748,35 @@ const App: React.FC = () => {
         }}
         initialMode={assistantMode}
       />
+
+      {/* Notification Toast */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[320px] max-w-[90vw] ${
+              notification.type === 'error' 
+                ? 'bg-rose-600 text-white shadow-rose-200 dark:shadow-rose-950/40' 
+                : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-emerald-950/40'
+            }`}
+          >
+            <div className="p-2 bg-white/20 rounded-xl">
+              {notification.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-70 leading-none mb-1">
+                {notification.type === 'error' ? 'System Error' : 'Success'}
+              </p>
+              <p className="font-bold text-sm leading-snug">{notification.message}</p>
+            </div>
+            <button onClick={() => setNotification(null)} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* AI Scanning Overlay */}
       {isScanning && (

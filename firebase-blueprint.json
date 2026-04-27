@@ -120,6 +120,84 @@
         "weightGoal": { "type": "number" }
       },
       "required": ["date"]
+    },
+    "Community": {
+      "title": "Community",
+      "description": "A group or challenge",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "isPrivate": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["challenge", "group"] },
+        "membersCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "image": { "type": "string" }
+      },
+      "required": ["name", "creatorId", "isPrivate", "type"]
+    },
+    "FeedPost": {
+      "title": "FeedPost",
+      "description": "A post in the general community feed",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "likes": { "type": "number" },
+        "comments": { "type": "number" },
+        "image": { "type": "string" }
+      },
+      "required": ["authorId", "authorName", "content", "timestamp"]
+    },
+    "CommunityMessage": {
+      "title": "CommunityMessage",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["senderId", "text", "timestamp"]
+    },
+    "CommunityMember": {
+      "title": "CommunityMember",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "member"] },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["userId", "role"]
+    },
+    "CommunityJoinRequest": {
+      "title": "CommunityJoinRequest",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "status"]
+    },
+    "CommunityVideo": {
+      "title": "CommunityVideo",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "uploaderId": { "type": "string" },
+        "uploaderName": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["title", "videoUrl", "uploaderId"]
     }
   },
   "firestore": {
@@ -138,6 +216,30 @@
     "/users/{userId}/dailyHistory/{date}": {
       "schema": "DailyHistoryEntry",
       "description": "Historical daily statistics"
+    },
+    "/communities/{communityId}": {
+      "schema": "Community",
+      "description": "Group/Challenge metadata"
+    },
+    "/communities/{communityId}/messages/{messageId}": {
+      "schema": "CommunityMessage",
+      "description": "Chat messages in the community"
+    },
+    "/communities/{communityId}/members/{userId}": {
+      "schema": "CommunityMember",
+      "description": "Members of the community"
+    },
+    "/communities/{communityId}/joinRequests/{userId}": {
+      "schema": "CommunityJoinRequest",
+      "description": "Pending join requests for private communities"
+    },
+    "/communities/{communityId}/videos/{videoId}": {
+      "schema": "CommunityVideo",
+      "description": "Videos uploaded to the community"
+    },
+    "/feed/{postId}": {
+      "schema": "FeedPost",
+      "description": "General community feed posts"
     }
   }
 }

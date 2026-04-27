@@ -77,6 +77,7 @@ export interface CommunityPost {
     name: string;
     avatar: string;
     isPro: boolean;
+    uid?: string;
   };
   type: 'workout' | 'meal' | 'milestone';
   content: string;
@@ -85,6 +86,66 @@ export interface CommunityPost {
   likes: number;
   comments: number;
   timestamp: string;
+}
+
+export type CommunityType = 'challenge' | 'group';
+
+export interface FeedPost {
+  id: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  timestamp: any;
+  likes: number;
+  comments: number;
+  image?: string;
+}
+
+export interface Community {
+  id: string;
+  name: string;
+  description: string;
+  creatorId: string;
+  creatorName: string;
+  isPrivate: boolean;
+  type: CommunityType;
+  membersCount: number;
+  createdAt: string;
+  image?: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: any;
+}
+
+export interface CommunityMember {
+  id: string;
+  userId: string;
+  name: string;
+  role: 'admin' | 'member';
+  joinedAt: any;
+}
+
+export interface CommunityJoinRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  status: 'pending' | 'accepted' | 'declined';
+  timestamp: any;
+}
+
+export interface CommunityVideo {
+  id: string;
+  title: string;
+  description?: string;
+  videoUrl: string;
+  uploaderId: string;
+  uploaderName: string;
+  timestamp: any;
 }
 
 export interface DailyHistoryEntry extends DailyStats {

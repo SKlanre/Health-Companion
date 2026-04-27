@@ -17,7 +17,8 @@ import {
   X,
   ShieldCheck,
   Plus,
-  Minus
+  Minus,
+  RefreshCw
 } from 'lucide-react';
 import { UserProfile, DailyStats, ActivityLevel, FitnessGoal, Gender, MealPrepStyle, FruitConsumption } from '../types';
 
@@ -28,6 +29,7 @@ interface OnboardingProps {
 
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) => {
   const [step, setStep] = useState(1);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [profile, setProfile] = useState<UserProfile>(initialProfile ? {
     ...initialProfile,
     onboarded: false // Force onboarded false so we stay in onboarding
@@ -100,8 +102,41 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
   };
 
   const handleFinish = () => {
+    setIsFinishing(true);
     const stats = calculateStats();
     onComplete({ ...profile, onboarded: true, hasAcceptedTerms: true }, stats);
+  };
+
+  const handleSkipAll = () => {
+    setIsFinishing(true);
+    // Use default values but make sure they are reasonable
+    const defaultProfile: UserProfile = {
+      ...profile,
+      name: profile.name || 'User',
+      location: profile.location || 'Global',
+      onboarded: true,
+      hasAcceptedTerms: true
+    };
+    
+    // Calculate stats with these defaults
+    const weightKg = defaultProfile.weight * 0.453592;
+    const bmr = 10 * weightKg + 6.25 * defaultProfile.height - 5 * defaultProfile.age + 5;
+    const tdee = bmr * 1.55; // moderate
+
+    const defaultStats: DailyStats = {
+      calories: 0,
+      caloriesGoal: Math.round(tdee),
+      water: 0,
+      waterGoal: 8,
+      steps: 0,
+      stepsGoal: 10000,
+      exercise: 0,
+      exerciseGoal: 30,
+      weight: defaultProfile.weight,
+      weightGoal: defaultProfile.weight
+    };
+
+    onComplete(defaultProfile, defaultStats);
   };
 
   const renderStep = () => {
@@ -732,6 +767,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
               <button 
                 onClick={nextStep}
                 disabled={
+                  isFinishing ||
                   (step === 1 && !profile.name) || 
                   (step === 2 && !profile.location) ||
                   (step === 11 && profile.goal !== 'maintain' && (
@@ -741,23 +777,24 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                 }
                 className="w-full p-5 gradient-bg rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 disabled:opacity-50"
               >
-                Next <ChevronRight className="w-6 h-6" />
+                {isFinishing ? <RefreshCw className="w-6 h-6 animate-spin" /> : <>Next <ChevronRight className="w-6 h-6" /></>}
               </button>
-              {initialProfile && (
-                <button 
-                  onClick={nextStep}
-                  className="w-full py-2 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest hover:opacity-70 transition-all"
-                >
-                  Skip Step (Keep Previous)
-                </button>
-              )}
+              
+              <button 
+                onClick={handleSkipAll}
+                className="w-full py-2 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest hover:opacity-70 transition-all flex items-center justify-center gap-2"
+              >
+                Skip everything & use defaults
+              </button>
+              <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-tight">You can edit these details anytime in your profile</p>
             </div>
           ) : (
             <button 
               onClick={handleFinish}
-              className="flex-1 p-5 bg-slate-900 dark:bg-indigo-600 rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-xl hover:bg-slate-800 dark:hover:bg-indigo-700 transition-all"
+              disabled={isFinishing}
+              className="flex-1 p-5 bg-slate-900 dark:bg-indigo-600 rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-xl hover:bg-slate-800 dark:hover:bg-indigo-700 transition-all disabled:opacity-50"
             >
-              Start My Journey <ArrowRight className="w-6 h-6" />
+              {isFinishing ? <RefreshCw className="w-6 h-6 animate-spin" /> : <>Start My Journey <ArrowRight className="w-6 h-6" /></>}
             </button>
           )}
         </div>

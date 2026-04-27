@@ -1,21 +1,24 @@
 
 import React, { useState } from 'react';
-import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle } from 'lucide-react';
-import { UserProfile, DailyHistoryEntry } from '../types';
+import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle, Edit3 } from 'lucide-react';
+import { UserProfile, DailyHistoryEntry, DailyStats } from '../types';
 import { auth, db, doc, setDoc, handleFirestoreError, OperationType } from '../firebase';
+import EditProfile from '../components/EditProfile';
 
 interface ProfileProps {
   profile: UserProfile | null;
   history?: DailyHistoryEntry[];
   onReset: () => void;
   onRestoreStats: () => Promise<boolean>;
+  onUpdateFullProfile: (profile: UserProfile, stats: DailyStats) => Promise<void>;
   darkMode: boolean;
   onToggleDarkMode: () => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreStats, darkMode, onToggleDarkMode }) => {
+const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreStats, onUpdateFullProfile, darkMode, onToggleDarkMode }) => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showRestoreSuccess, setShowRestoreSuccess] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   if (!profile) return null;
 
@@ -152,11 +155,10 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
             ))}
           </div>
         </div>
-        <MenuButton icon={<User className="text-blue-500" />} label="Personal Information" />
         <MenuButton 
-          icon={<Heart className="text-red-500" />} 
-          label="Retake Health Questionnaire" 
-          onClick={handleResetData}
+          icon={<Edit3 className="text-blue-500" />} 
+          label="Edit Profile & Goals" 
+          onClick={() => setIsEditModalOpen(true)}
         />
         
         <div className="p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-100 dark:border-indigo-800/50 space-y-3">
@@ -190,6 +192,13 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
       >
         <LogOut className="w-5 h-5" /> Sign Out
       </button>
+
+      <EditProfile 
+        profile={profile}
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSave={onUpdateFullProfile}
+      />
     </div>
   );
 };
