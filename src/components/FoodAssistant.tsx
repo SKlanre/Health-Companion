@@ -12,7 +12,8 @@ import {
   History,
   Info,
   Volume2,
-  VolumeX
+  VolumeX,
+  Zap
 } from 'lucide-react';
 import { processVoiceMeal, analyzeBuffet, generateSpeech } from '../services/geminiService';
 import { DailyStats, UserProfile, FoodLogEntry } from '../types';
@@ -26,9 +27,11 @@ interface Props {
   foodLog: FoodLogEntry[];
   onLogMeal: (name: string, calories: number, analysis?: string) => void;
   initialMode?: 'voice' | 'text';
+  maxDailyScans: number;
+  incrementAiUsage: () => Promise<boolean>;
 }
 
-const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, foodLog, onLogMeal, initialMode = 'voice' }) => {
+const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, foodLog, onLogMeal, initialMode = 'voice', maxDailyScans, incrementAiUsage }) => {
   const [activeTab, setActiveTab] = useState<'voice' | 'buffet'>('voice');
   const [isListening, setIsListening] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -264,6 +267,10 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
     const finalTranscription = textToProcess || transcription;
     if (!finalTranscription.trim()) return;
     
+    // Check usage
+    const canProcess = await incrementAiUsage();
+    if (!canProcess) return;
+
     setIsLoading(true);
     setResult(null);
     setError(null);
@@ -288,6 +295,11 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
 
   const handleScanBuffet = async () => {
     if (!videoRef.current || !canvasRef.current) return;
+
+    // Check usage
+    const canProcess = await incrementAiUsage();
+    if (!canProcess) return;
+
     setIsLoading(true);
     setResult(null);
 
@@ -338,6 +350,10 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
 
   if (!isOpen) return null;
 
+  const today = new Date().toISOString().split('T')[0];
+  const scanCountToday = userProfile?.lastScanDate === today ? (userProfile?.dailyScansCount || 0) : 0;
+  const remainingScans = Math.max(0, maxDailyScans - scanCountToday);
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[200] flex items-end sm:items-center justify-center animate-in fade-in duration-300">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg sm:rounded-[40px] rounded-t-[40px] p-8 shadow-2xl relative flex flex-col max-h-[90vh] overflow-hidden">
@@ -345,13 +361,28 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
           <X className="w-6 h-6 text-slate-400" />
         </button>
 
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-500 flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40">
-            <Sparkles className="w-6 h-6" />
+        <div className="flex justify-between items-start mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-none">FitAI Assistant</h2>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Smart Health Companion</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">Food Assistant</h3>
-            <p className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">AI-Powered Advisor</p>
+          <div className={`flex flex-col items-end gap-1 p-2.5 rounded-2xl border shadow-sm ${
+            remainingScans === 0 
+              ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/30' 
+              : 'bg-indigo-50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/30'
+          }`}>
+            <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter bg-indigo-100 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md self-end">Free Tier</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Zap className={`w-3 h-3 ${remainingScans === 0 ? 'text-rose-400' : 'text-amber-500 fill-amber-500'}`} />
+              <span className={`text-xs font-black ${remainingScans === 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-200'}`}>
+                {remainingScans}/{maxDailyScans} Uses Left
+              </span>
+            </div>
           </div>
         </div>
 

@@ -30,6 +30,8 @@ export interface UserProfile {
   onboarded: boolean;
   lastAiTip?: string;
   lastAiTipTimestamp?: string;
+  dailyScansCount?: number;
+  lastScanDate?: string;
   preloadedMeals?: {
     [key: string]: {
       content: string;

@@ -23,6 +23,8 @@
         "lastStatsResetDate": { "type": "string", "description": "Last date the daily stats were reset (YYYY-MM-DD)" },
         "unitSystem": { "type": "string", "enum": ["metric", "imperial"] },
         "onboarded": { "type": "boolean" },
+        "dailyScansCount": { "type": "number", "description": "Number of AI scans today" },
+        "lastScanDate": { "type": "string", "description": "YYYY-MM-DD" },
         "lastAiTip": { "type": "string" },
         "lastAiTipTimestamp": { "type": "string" },
         "preloadedMeals": {

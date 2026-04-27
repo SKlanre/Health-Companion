@@ -33,9 +33,11 @@ interface Props {
   onUpdateStat: (key: keyof DailyStats, value: number) => void;
   onLogMeal: (name: string, calories: number, analysis?: string) => void;
   onTriggerScan: () => void;
+  maxDailyScans: number;
+  incrementAiUsage: () => Promise<boolean>;
 }
 
-const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan }) => {
+const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage }) => {
   const [aiCoachTip, setAiCoachTip] = useState<string>(userProfile?.lastAiTip || "Generating your personalized morning brief...");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
@@ -208,6 +210,10 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       return;
     }
 
+    // Check usage
+    const canProcess = await incrementAiUsage();
+    if (!canProcess) return;
+
     setAiModalContent({ title: `${selectedMealType.charAt(0).toUpperCase() + selectedMealType.slice(1)} Recommendation`, content: "", isLoading: true });
     try {
       const remaining = stats.caloriesGoal - stats.calories;
@@ -247,6 +253,10 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       setAiModalContent({ title: "Quick Workout Idea", content: userProfile.preloadedWorkout, isLoading: false });
       return;
     }
+
+    // Check usage
+    const canProcess = await incrementAiUsage();
+    if (!canProcess) return;
 
     setAiModalContent({ title: "Quick Workout Idea", content: "", isLoading: true });
     try {
@@ -296,6 +306,10 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     onLogMeal(name, calories, analysis);
   };
 
+  const today = new Date().toISOString().split('T')[0];
+  const scanCountToday = userProfile?.lastScanDate === today ? (userProfile?.dailyScansCount || 0) : 0;
+  const remainingScans = Math.max(0, maxDailyScans - scanCountToday);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-10">
       <FoodAssistant 
@@ -305,6 +319,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
         userProfile={userProfile}
         foodLog={foodLog}
         onLogMeal={handleLogMealInternal}
+        maxDailyScans={maxDailyScans}
+        incrementAiUsage={incrementAiUsage}
       />
       
       {/* Header with Streak */}
@@ -313,8 +329,23 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
           <Zap className="w-5 h-5 text-amber-500 fill-amber-500" />
           <span className="text-lg font-black text-amber-700 dark:text-amber-400">{userProfile?.streak || 0} Day Streak</span>
         </div>
-        <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] leading-none">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          <div className={`flex flex-col items-end gap-1 p-2 rounded-2xl border ${
+            remainingScans === 0 
+              ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/30' 
+              : 'bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/30'
+          }`}>
+            <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">FitAI Status</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 rounded-md">Free Tier</span>
+              <span className={`text-[11px] font-black ${remainingScans === 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-200'}`}>
+                {remainingScans}/{maxDailyScans} Scans
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

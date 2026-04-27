@@ -49,6 +49,7 @@ import type { User } from './firebase';
 import { useStepCounter } from './hooks/useStepCounter';
 
 const App: React.FC = () => {
+  const MAX_DAILY_SCANS = 5;
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -395,9 +396,44 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
+  const incrementAiUsage = async () => {
+    if (!user) return false;
+    const today = new Date().toISOString().split('T')[0];
+    let currentScansCount = userProfile?.dailyScansCount || 0;
+    const lastScanDate = userProfile?.lastScanDate;
+
+    if (lastScanDate !== today) {
+      currentScansCount = 0;
+    }
+
+    if (currentScansCount >= MAX_DAILY_SCANS) {
+      showNotification(`Daily AI limit reached (${MAX_DAILY_SCANS}/${MAX_DAILY_SCANS}). Upgrade for unlimited!`, 'error');
+      return false;
+    }
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const nextCount = currentScansCount + 1;
+    await setDoc(userDocRef, { 
+      dailyScansCount: nextCount,
+      lastScanDate: today
+    }, { merge: true });
+
+    if (userProfile) {
+      setUserProfile({ ...userProfile, dailyScansCount: nextCount, lastScanDate: today });
+    }
+    return true;
+  };
+
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
+
+    // Check & Increment (atomically-ish for the session)
+    const canScan = await incrementAiUsage();
+    if (!canScan) {
+      event.target.value = '';
+      return;
+    }
 
     setIsScanning(true);
     const reader = new FileReader();
@@ -567,6 +603,8 @@ const App: React.FC = () => {
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
           onTriggerScan={() => setShowLogMenu(true)} 
+          maxDailyScans={MAX_DAILY_SCANS}
+          incrementAiUsage={incrementAiUsage}
         />;
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;
@@ -594,6 +632,8 @@ const App: React.FC = () => {
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
           onTriggerScan={() => setShowLogMenu(true)} 
+          maxDailyScans={MAX_DAILY_SCANS}
+          incrementAiUsage={incrementAiUsage}
         />;
     }
   };
@@ -747,6 +787,8 @@ const App: React.FC = () => {
           handleAddFood(name, calories, analysis);
         }}
         initialMode={assistantMode}
+        maxDailyScans={MAX_DAILY_SCANS}
+        incrementAiUsage={incrementAiUsage}
       />
 
       {/* Notification Toast */}
