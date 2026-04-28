@@ -37,6 +37,7 @@ import {
   doc, 
   getDoc, 
   setDoc, 
+  updateDoc,
   onSnapshot, 
   collection, 
   query, 
@@ -48,13 +49,22 @@ import {
 import type { User } from './firebase';
 import { useStepCounter } from './hooks/useStepCounter';
 
+import { initializePayment, verifyPayment } from './services/paymentService';
+
+import { getCurrencyForLocation } from './lib/currencies';
+
 const App: React.FC = () => {
-  const MAX_DAILY_SCANS = 5;
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  const getDailyLimit = () => {
+    if (userProfile?.tier === 'premium') return 500;
+    return 5;
+  };
+  const MAX_DAILY_SCANS = getDailyLimit();
   const [notification, setNotification] = useState<{message: string, type: 'error' | 'success'} | null>(null);
   
   const [stats, setStats] = useState<DailyStats>({
@@ -91,6 +101,43 @@ const App: React.FC = () => {
       handleUpdateStatSilently('steps', stats.steps + 1);
     }
   });
+
+  // Payment Verification logic
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('reference');
+    const trxref = params.get('trxref');
+    
+    if (reference && user) {
+      const checkPayment = async () => {
+        try {
+          showNotification("Verifying payment...", 'success');
+          const verification = await verifyPayment(reference);
+          
+          if (verification.status && verification.data.status === 'success') {
+            // Update User to Premium
+            const userDocRef = doc(db, 'users', user.uid);
+            await updateDoc(userDocRef, { tier: 'premium' });
+            
+            if (userProfile) {
+              setUserProfile({ ...userProfile, tier: 'premium' });
+            }
+            showNotification("Welcome to Premium! Your limits are gone.", 'success');
+            
+            // Clean URL
+            window.history.replaceState({}, document.title, "/");
+          } else {
+            showNotification("Payment verification failed.", 'error');
+          }
+        } catch (error) {
+          console.error("Verification error:", error);
+          showNotification("Error verifying payment.", 'error');
+        }
+      };
+      
+      checkPayment();
+    }
+  }, [user, isAuthReady]);
 
   // Start/Stop tracking based on terms
   useEffect(() => {
@@ -407,7 +454,10 @@ const App: React.FC = () => {
     }
 
     if (currentScansCount >= MAX_DAILY_SCANS) {
-      showNotification(`Daily AI limit reached (${MAX_DAILY_SCANS}/${MAX_DAILY_SCANS}). Upgrade for unlimited!`, 'error');
+      const message = userProfile?.tier === 'premium' 
+        ? "Wow! You've used a lot of AI today. Take a breather!" 
+        : `Daily limit reached (${MAX_DAILY_SCANS}/${MAX_DAILY_SCANS}). Upgrade for unlimited!`;
+      showNotification(message, 'error');
       return false;
     }
 
@@ -593,18 +643,33 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpgrade = async () => {
+    if (!user) {
+      showNotification("Please sign in to upgrade", 'error');
+      return;
+    }
+    try {
+      const currencyInfo = getCurrencyForLocation(userProfile?.location || "");
+      showNotification(`Redirecting to payment (${currencyInfo.symbol}${currencyInfo.amount})...`, 'success');
+      await initializePayment(user.email || "", currencyInfo.amount, user.uid, currencyInfo.code);
+    } catch (error) {
+      showNotification("Failed to start payment. Please try again.", 'error');
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard 
           stats={stats} 
           userProfile={userProfile} 
-          foodLog={foodLog}
+          foodLog={foodLog} 
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
           onTriggerScan={() => setShowLogMenu(true)} 
           maxDailyScans={MAX_DAILY_SCANS}
           incrementAiUsage={incrementAiUsage}
+          onUpgrade={handleUpgrade}
         />;
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;
@@ -634,6 +699,7 @@ const App: React.FC = () => {
           onTriggerScan={() => setShowLogMenu(true)} 
           maxDailyScans={MAX_DAILY_SCANS}
           incrementAiUsage={incrementAiUsage}
+          onUpgrade={handleUpgrade}
         />;
     }
   };

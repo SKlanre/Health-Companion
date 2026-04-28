@@ -32,6 +32,7 @@ export interface UserProfile {
   lastAiTipTimestamp?: string;
   dailyScansCount?: number;
   lastScanDate?: string;
+  tier?: 'free' | 'premium';
   preloadedMeals?: {
     [key: string]: {
       content: string;

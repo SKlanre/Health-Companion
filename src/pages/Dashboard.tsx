@@ -26,6 +26,8 @@ import ReactMarkdown from 'react-markdown';
 import FoodAssistant from '../components/FoodAssistant';
 import WorkoutFocus from '../components/WorkoutFocus';
 
+import { getCurrencyForLocation } from '../lib/currencies';
+
 interface Props {
   stats: DailyStats;
   userProfile: UserProfile | null;
@@ -35,9 +37,10 @@ interface Props {
   onTriggerScan: () => void;
   maxDailyScans: number;
   incrementAiUsage: () => Promise<boolean>;
+  onUpgrade: () => void;
 }
 
-const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage }) => {
+const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage, onUpgrade }) => {
   const [aiCoachTip, setAiCoachTip] = useState<string>(userProfile?.lastAiTip || "Generating your personalized morning brief...");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
@@ -340,7 +343,11 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
           }`}>
             <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">FitAI Status</span>
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 rounded-md">Free Tier</span>
+              <span className={`text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded-md ${
+                userProfile?.tier === 'premium' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40'
+              }`}>
+                {userProfile?.tier === 'premium' ? 'Pro Member' : 'Free Tier'}
+              </span>
               <span className={`text-[11px] font-black ${remainingScans === 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-200'}`}>
                 {remainingScans}/{maxDailyScans} Scans
               </span>
@@ -411,6 +418,39 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       </button>
 
       {/* Main Metrics (Grid) */}
+      {/* Premium Upgrade Card */}
+      {userProfile?.tier !== 'premium' && (() => {
+        const currencyInfo = getCurrencyForLocation(userProfile?.location || "");
+        return (
+          <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[32px] p-6 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden group">
+            <div className="absolute top-0 right-0 -m-4 w-32 h-32 bg-white/10 rounded-full blur-2xl transition-all duration-700" />
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-300 fill-amber-300" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-100">Unlock Pro Features</span>
+                </div>
+                <span className="bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest">Coming Soon</span>
+              </div>
+              <h3 className="text-xl font-black mb-1">Get Unlimited AI Scans</h3>
+              <p className="text-indigo-100 text-sm mb-4 leading-relaxed max-w-[240px]">
+                Soon you'll be able to access priority AI coaching for just <span className="font-bold text-white">{currencyInfo.symbol}{currencyInfo.amount}</span>/month.
+              </p>
+              <button 
+                disabled
+                className="bg-white/50 text-indigo-800/80 cursor-not-allowed px-6 py-2.5 rounded-2xl font-black text-sm shadow-lg flex items-center gap-2 transition-all"
+              >
+                Upgrade (Coming Soon)
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="absolute bottom-0 right-4 translate-y-1/4 opacity-10 transition-opacity">
+              <Zap className="w-32 h-32 text-white fill-white" />
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-2 gap-4">
         <MetricCircleCard 
           label="Calories" 
