@@ -6,7 +6,6 @@ import {
   BarChart2, 
   Camera, 
   Plus, 
-  Mic,
   PenLine,
   Utensils, 
   Clock, 
@@ -87,7 +86,7 @@ const App: React.FC = () => {
   const [scanMode, setScanMode] = useState<'quick' | 'deep'>('quick');
   const [showLogMenu, setShowLogMenu] = useState(false);
   const [showFoodAssistant, setShowFoodAssistant] = useState(false);
-  const [assistantMode, setAssistantMode] = useState<'voice' | 'text'>('voice');
+  const [assistantMode, setAssistantMode] = useState<'voice' | 'text'>('text');
   const [pendingFood, setPendingFood] = useState<{ name: string, calories: number } | null>(null);
   const [currentBase64, setCurrentBase64] = useState<string | null>(null);
   const [additionalDetails, setAdditionalDetails] = useState("");
@@ -153,8 +152,15 @@ const App: React.FC = () => {
     try {
       const userDocRef = doc(db, 'users', user.uid);
       const newStats = { ...stats, [key]: value };
-      await setDoc(userDocRef, { stats: newStats }, { merge: true });
+      const updatePayload: any = { stats: newStats };
+      if (key === 'weight') {
+        updatePayload.weight = value;
+      }
+      await setDoc(userDocRef, updatePayload, { merge: true });
       setStats(newStats);
+      if (key === 'weight' && userProfile) {
+        setUserProfile({ ...userProfile, weight: value });
+      }
     } catch (error) {
       // Fail silently for background updates
     }
@@ -379,15 +385,26 @@ const App: React.FC = () => {
         newLastActivityDate = today;
       }
 
-      await setDoc(userDocRef, { 
+      const updatePayload: any = { 
         stats: newStats, 
         streak: newStreak, 
         lastActivityDate: newLastActivityDate 
-      }, { merge: true });
+      };
+
+      if (key === 'weight') {
+        updatePayload.weight = value;
+      }
+
+      await setDoc(userDocRef, updatePayload, { merge: true });
       
       setStats(newStats);
       if (userProfile) {
-        setUserProfile({ ...userProfile, streak: newStreak, lastActivityDate: newLastActivityDate });
+        setUserProfile({ 
+          ...userProfile, 
+          streak: newStreak, 
+          lastActivityDate: newLastActivityDate,
+          weight: key === 'weight' ? value : userProfile.weight
+        });
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
@@ -449,10 +466,17 @@ const App: React.FC = () => {
 
   const incrementAiUsage = async () => {
     if (!user) return false;
-    const today = new Date().toISOString().split('T')[0];
+    
+    // Custom "Scan Day" calculation: subtract 5 hours from current time.
+    // This makes anything before 5:00 AM count as the previous day.
+    const now = new Date();
+    const scanDayDate = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+    const today = scanDayDate.toISOString().split('T')[0];
+    
     let currentScansCount = userProfile?.dailyScansCount || 0;
     const lastScanDate = userProfile?.lastScanDate;
 
+    // Reset count if it's a new "Scan Day" (past 5:00 AM since last reset)
     if (lastScanDate !== today) {
       currentScansCount = 0;
     }
@@ -460,7 +484,7 @@ const App: React.FC = () => {
     if (currentScansCount >= MAX_DAILY_SCANS) {
       const message = userProfile?.tier === 'premium' 
         ? "Wow! You've used a lot of AI today. Take a breather!" 
-        : `Daily limit reached (${MAX_DAILY_SCANS}/${MAX_DAILY_SCANS}). Upgrade for unlimited!`;
+        : `Daily limit reached (${MAX_DAILY_SCANS}/${MAX_DAILY_SCANS}). Reset at 5:00 AM.`;
       showNotification(message, 'error');
       return false;
     }
@@ -469,7 +493,8 @@ const App: React.FC = () => {
     const nextCount = currentScansCount + 1;
     await setDoc(userDocRef, { 
       dailyScansCount: nextCount,
-      lastScanDate: today
+      lastScanDate: today,
+      lastScanTimestamp: now.toISOString()
     }, { merge: true });
 
     if (userProfile) {
@@ -809,19 +834,6 @@ const App: React.FC = () => {
             <button 
               onClick={() => {
                 setShowLogMenu(false);
-                setAssistantMode('voice');
-                setShowFoodAssistant(true);
-              }}
-              className="bg-white dark:bg-slate-900 px-5 py-3 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-3 text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95"
-            >
-              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
-                <Mic className="w-4 h-4" />
-              </div>
-              Voice Record
-            </button>
-            <button 
-              onClick={() => {
-                setShowLogMenu(false);
                 setAssistantMode('text');
                 setShowFoodAssistant(true);
               }}
@@ -830,7 +842,7 @@ const App: React.FC = () => {
               <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center text-amber-500">
                 <PenLine className="w-4 h-4" />
               </div>
-              Type Meal
+              Log Meal by Typing
             </button>
           </div>
         )}

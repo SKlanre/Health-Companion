@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, ThinkingLevel, Modality } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { UserProfile, DailyStats, FoodLogEntry } from "../types";
 
 // Support both AI Studio environment and external deployments like Vercel
@@ -57,27 +57,38 @@ const handleGenAIError = (error: any): never => {
   throw new Error(message || "An unexpected AI error occurred. Please try again later.");
 };
 
-// Internal retry helper for AI calls
+// Internal retry helper for AI calls with Global Lock to prevent concurrent requests
+let isAiBusy = false;
 const withRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> => {
+  // Wait if AI is already busy (Simple queue)
+  while (isAiBusy) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  isAiBusy = true;
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
-      return await fn();
+      const result = await fn();
+      isAiBusy = false;
+      return result;
     } catch (err: any) {
       lastError = err;
       const message = err.message || "";
       const isRateLimit = message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED");
       
       if (isRateLimit && i < maxRetries - 1) {
-        // Exponential backoff: 2s, 4s, 8s (with some random jitter)
-        const delay = Math.pow(2, i + 1) * 1000 + (Math.random() * 1000);
+        // Exponential backoff: 3s, 6s, 12s
+        const delay = Math.pow(2, i + 1) * 1500 + (Math.random() * 1500);
         console.warn(`[AI] Rate limit hit. Retry ${i+1}/${maxRetries} in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
+      isAiBusy = false;
       throw err;
     }
   }
+  isAiBusy = false;
   throw lastError;
 };
 
@@ -525,28 +536,5 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
     }
   } catch (err) {
     handleGenAIError(err);
-  }
-};
-
-export const generateSpeech = async (text: string) => {
-  try {
-    const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3.1-flash-tts-preview",
-      contents: [{ parts: [{ text: `Say naturally but with a supportive tone: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
-      },
-    }));
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    return base64Audio || null;
-  } catch (error) {
-    console.error("Speech generation failed:", error);
-    return null;
   }
 };

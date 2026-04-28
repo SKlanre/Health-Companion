@@ -12,7 +12,7 @@ import {
   X,
   Edit2,
   Camera,
-  Mic,
+  MessageSquare,
   Scale,
   Plus,
   Minus,
@@ -70,8 +70,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
         lastAiTipTimestamp: new Date().toISOString()
       }, { merge: true });
       
-      // After tip, preload meals if needed
-      preloadMeals();
+      // After tip, we no longer preload automatically here. 
+      // The initializeDashboard logic in useEffect handles the stagger.
     } catch (error) {
       setAiCoachTip("Ready to hit your goals today? Every step counts toward a better you.");
     } finally {
@@ -92,11 +92,11 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       const remaining = stats.caloriesGoal - stats.calories;
       const calBuffer = remaining > 0 ? remaining : 500;
 
-      // Stagger calls to avoid hitting rate limits (RPM)
+      // Call 1: Meals
       const mealResults = await suggestDailyMeals(calBuffer, userProfile, stats.caloriesGoal);
       
-      // Short delay before next AI call
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Call 2: Workout (Wait 2 seconds after meals to clear RPM bucket)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       const workoutResult = await suggestWorkout(15, userProfile);
       
@@ -288,11 +288,23 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     const lastPreloadDate = userProfile?.lastMealPreloadTimestamp ? new Date(userProfile.lastMealPreloadTimestamp).toDateString() : '';
     const today = new Date().toDateString();
     
-    if (!userProfile?.lastAiTip || lastTipDate !== today) {
-      fetchCoachTip();
-    } else if (!userProfile?.preloadedMeals || lastPreloadDate !== today) {
-      preloadMeals();
-    }
+    const initializeDashboard = async () => {
+      // 1. Fetch Tip first (Highest priority)
+      if (!userProfile?.lastAiTip || lastTipDate !== today) {
+        await fetchCoachTip();
+      }
+      
+      // 2. Wait 3 seconds before preloading meals/workout to avoid RPM spikes
+      // even if tip didn't run (to be safe if multiple people open apps at once)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // 3. Preload everything else if needed
+      if (!userProfile?.preloadedMeals || lastPreloadDate !== today) {
+        preloadMeals();
+      }
+    };
+
+    initializeDashboard();
   }, []);
 
   const getMetricInfo = (key: keyof DailyStats | null) => {
@@ -311,7 +323,9 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     onLogMeal(name, calories, analysis);
   };
 
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const scanDayDate = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+  const today = scanDayDate.toISOString().split('T')[0];
   const scanCountToday = userProfile?.lastScanDate === today ? (userProfile?.dailyScansCount || 0) : 0;
   const remainingScans = Math.max(0, maxDailyScans - scanCountToday);
 
@@ -411,7 +425,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
             <div className="bg-white/20 text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded-md backdrop-blur-md">New</div>
           </div>
           <p className="text-white/80 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-            <Mic className="w-3 h-3" /> Voice Log • <Camera className="w-3 h-3" /> Buffet Scanner
+            <MessageSquare className="w-3 h-3" /> Log Meal • <Camera className="w-3 h-3" /> Buffet Scanner
           </p>
         </div>
         <div className="ml-auto w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md group-hover:translate-x-1 transition-transform relative z-10">

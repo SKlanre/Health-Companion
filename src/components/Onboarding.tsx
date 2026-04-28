@@ -655,7 +655,11 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                     max={displayMax + 40}
                     className="w-full h-2 bg-gray-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500 mt-8"
                     value={currentTarget}
-                    onChange={(e) => setProfile({ ...profile, targetWeight: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      const valLbs = profile.unitSystem === 'imperial' ? val : Math.round(val / 0.453592);
+                      setProfile({ ...profile, targetWeight: valLbs });
+                    }}
                   />
                 </div>
 

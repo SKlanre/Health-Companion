@@ -14,7 +14,8 @@ import {
   Wallet,
   Sparkles,
   RefreshCw,
-  Heart
+  Heart,
+  AlertCircle
 } from 'lucide-react';
 import { UserProfile, ActivityLevel, FitnessGoal, Gender, MealPrepStyle, FruitConsumption, DailyStats } from '../types';
 
@@ -29,7 +30,28 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
   const [editedProfile, setEditedProfile] = useState<UserProfile>({ ...profile });
   const [isSaving, setIsSaving] = useState(false);
 
+  const [bmiError, setBmiError] = useState<string | null>(null);
+
   if (!isOpen) return null;
+
+  const getBmiRange = () => {
+    const heightM = editedProfile.height / 100;
+    const minKg = 18.5 * (heightM * heightM);
+    const maxKg = 25 * (heightM * heightM);
+    
+    if (editedProfile.unitSystem === 'imperial') {
+      return {
+        min: Math.round(minKg / 0.453592),
+        max: Math.round(maxKg / 0.453592),
+        unit: 'lbs'
+      };
+    }
+    return {
+      min: Math.round(minKg),
+      max: Math.round(maxKg),
+      unit: 'kg'
+    };
+  };
 
   const calculateUpdatedStats = (p: UserProfile): DailyStats => {
     // Mifflin-St Jeor Equation
@@ -55,8 +77,7 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
     }
 
     return {
-      calories: 0, // Reset for recalculation maybe? No, keep current progress? 
-                   // Actually, stats are shared, we just update goals.
+      calories: 0,
       caloriesGoal: Math.round(calorieGoal),
       water: 0,
       waterGoal: p.activityLevel === 'active' || p.activityLevel === 'very_active' ? 12 : 8,
@@ -70,12 +91,16 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
   };
 
   const handleSave = async () => {
+    if (bmiError) return;
+
     setIsSaving(true);
     const stats = calculateUpdatedStats(editedProfile);
     await onSave(editedProfile, stats);
     setIsSaving(false);
     onClose();
   };
+
+  const bmiRange = getBmiRange();
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[250] flex flex-col p-6 overflow-y-auto no-scrollbar">
@@ -152,35 +177,77 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
           </div>
 
           {/* Metrics */}
-          <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">Weight ({editedProfile.unitSystem === 'imperial' ? 'lbs' : 'kg'})</label>
-                <div className="relative">
-                   <Scale className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-rose-300" />
-                   <input 
-                    type="number" 
-                    value={editedProfile.unitSystem === 'imperial' ? editedProfile.weight : Math.round(editedProfile.weight * 0.453592)}
-                    onChange={(e) => {
-                       const val = parseFloat(e.target.value);
-                       const valLbs = editedProfile.unitSystem === 'imperial' ? val : val / 0.453592;
-                       setEditedProfile({...editedProfile, weight: valLbs});
-                    }}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-black text-slate-800 dark:text-white"
-                   />
-                </div>
-             </div>
-             <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">Height (cm)</label>
-                <div className="relative">
-                   <Ruler className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-300" />
-                   <input 
-                    type="number" 
-                    value={editedProfile.height}
-                    onChange={(e) => setEditedProfile({...editedProfile, height: parseInt(e.target.value)})}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-black text-slate-800 dark:text-white"
-                   />
-                </div>
-             </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">Current ({editedProfile.unitSystem === 'imperial' ? 'lbs' : 'kg'})</label>
+                  <div className="relative">
+                    <Scale className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-rose-300" />
+                    <input 
+                      type="number" 
+                      value={editedProfile.unitSystem === 'imperial' ? Math.round(editedProfile.weight) : Math.round(editedProfile.weight * 0.453592)}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        const valLbs = editedProfile.unitSystem === 'imperial' ? val : val / 0.453592;
+                        setEditedProfile({...editedProfile, weight: valLbs});
+                      }}
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-black text-slate-800 dark:text-white"
+                    />
+                  </div>
+              </div>
+              <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">Height (cm)</label>
+                  <div className="relative">
+                    <Ruler className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-300" />
+                    <input 
+                      type="number" 
+                      value={editedProfile.height}
+                      onChange={(e) => setEditedProfile({...editedProfile, height: parseInt(e.target.value)})}
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-black text-slate-800 dark:text-white"
+                    />
+                  </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 p-5 bg-rose-50/50 dark:bg-rose-950/20 rounded-[24px] border border-rose-100 dark:border-rose-900/40">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-widest block ml-1">Goal Weight ({editedProfile.unitSystem === 'imperial' ? 'lbs' : 'kg'})</label>
+                <span className="text-[9px] font-bold text-rose-400 dark:text-rose-500 uppercase tracking-widest">
+                  Healthy: {bmiRange.min}-{bmiRange.max} {bmiRange.unit}
+                </span>
+              </div>
+              <div className="relative">
+                <Target className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-rose-400" />
+                <input 
+                  type="number" 
+                  value={editedProfile.unitSystem === 'imperial' ? Math.round(editedProfile.targetWeight || editedProfile.weight) : Math.round((editedProfile.targetWeight || editedProfile.weight) * 0.453592)}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    const valLbs = editedProfile.unitSystem === 'imperial' ? val : val / 0.453592;
+                    
+                    // Validate
+                    const inCurrentUnit = editedProfile.unitSystem === 'imperial' ? val : val; // wait val is already in current unit
+                    const min = bmiRange.min;
+                    const max = bmiRange.max;
+                    
+                    if (val < min || val > max) {
+                      setBmiError(`Please set a healthy weight goal between ${min} and ${max} ${bmiRange.unit}.`);
+                    } else {
+                      setBmiError(null);
+                    }
+                    
+                    setEditedProfile({...editedProfile, targetWeight: valLbs});
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-900 rounded-2xl border ${bmiError ? 'border-rose-500' : 'border-rose-200 dark:border-rose-800'} font-black text-slate-800 dark:text-white transition-all`}
+                />
+              </div>
+              {bmiError && (
+                <p className="text-[10px] font-bold text-rose-500 mt-2 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {bmiError}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Activity & Goal */}

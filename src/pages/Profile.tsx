@@ -31,18 +31,26 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
     
     setIsRestoring(true);
     try {
-      // 1. Restore Weight if discrepancy found
-      const hasWeightDiscrepancy = history && history.length > 0 && history.some(h => h.weight !== profile.weight);
-      if (hasWeightDiscrepancy) {
-        const lastWeight = history.find(h => h.weight !== profile.weight)?.weight || history[0].weight;
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
-        await setDoc(userDocRef, { 
-          weight: lastWeight,
-          stats: { weight: lastWeight }
-        }, { merge: true });
+      const userDocRef = doc(db, 'users', auth.currentUser.uid);
+      
+      // 1. Sync Weight & Goal if mismatched
+      const updates: any = {};
+      if (history && history.length > 0 && history[0].weight !== profile.weight) {
+        updates.weight = history[0].weight;
+      }
+      
+      // Ensure stats has the correct weight goal from profile
+      const mergedStats = {
+        ...(profile as any).stats,
+        weightGoal: profile.targetWeight || profile.weight
+      };
+      updates.stats = mergedStats;
+
+      if (Object.keys(updates).length > 0) {
+        await setDoc(userDocRef, updates, { merge: true });
       }
 
-      // 2. Restore Goals and Today's Calories
+      // 2. Restore other goals and Today's Calories progress
       await onRestoreStats();
       
       setShowRestoreSuccess(true);
@@ -97,6 +105,13 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
           value={profile.unitSystem === 'metric' 
             ? `${Math.round(profile.weight * 0.453592)} kg` 
             : `${profile.weight} lbs`} 
+        />
+        <ProfileStat 
+          icon={<Target className="text-emerald-500" />} 
+          label="Goal" 
+          value={profile.unitSystem === 'metric' 
+            ? `${Math.round((profile.targetWeight || profile.weight) * 0.453592)} kg` 
+            : `${(profile.targetWeight || profile.weight)} lbs`} 
         />
         <ProfileStat 
           icon={<Ruler className="text-blue-500" />} 
