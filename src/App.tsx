@@ -61,11 +61,11 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const getDailyLimit = () => {
-    if (userProfile?.tier === 'premium') return 500;
+    if (userProfile?.tier === 'premium') return 9999; // Practically unlimited
     return 5;
   };
   const MAX_DAILY_SCANS = getDailyLimit();
-  const [notification, setNotification] = useState<{message: string, type: 'error' | 'success'} | null>(null);
+  const [notification, setNotification] = useState<{message: string, type: 'error' | 'success' | 'info'} | null>(null);
   
   const [stats, setStats] = useState<DailyStats>({
     calories: 0,
@@ -438,9 +438,13 @@ const App: React.FC = () => {
     }
   };
 
-  const showNotification = (message: string, type: 'error' | 'success' = 'error') => {
+  const showNotification = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+    // Keep rate limit info visible for longer as it implies waiting
+    const duration = message.includes('retrying') ? 10000 : 5000;
+    setTimeout(() => {
+      setNotification(prev => (prev?.message === message ? null : prev));
+    }, duration);
   };
 
   const incrementAiUsage = async () => {
@@ -867,15 +871,23 @@ const App: React.FC = () => {
             className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[320px] max-w-[90vw] ${
               notification.type === 'error' 
                 ? 'bg-rose-600 text-white shadow-rose-200 dark:shadow-rose-950/40' 
-                : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-emerald-950/40'
+                : notification.type === 'info'
+                  ? 'bg-indigo-600 text-white shadow-indigo-200 dark:shadow-indigo-950/40'
+                  : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-emerald-950/40'
             }`}
           >
             <div className="p-2 bg-white/20 rounded-xl">
-              {notification.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+              {notification.type === 'error' ? (
+                <AlertCircle className="w-5 h-5" />
+              ) : notification.type === 'info' ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5" />
+              )}
             </div>
             <div className="flex-1">
               <p className="text-[10px] font-black uppercase tracking-widest opacity-70 leading-none mb-1">
-                {notification.type === 'error' ? 'System Error' : 'Success'}
+                {notification.type === 'error' ? 'System Error' : notification.type === 'info' ? 'AI Status' : 'Success'}
               </p>
               <p className="font-bold text-sm leading-snug">{notification.message}</p>
             </div>

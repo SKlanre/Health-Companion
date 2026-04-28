@@ -92,11 +92,13 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       const remaining = stats.caloriesGoal - stats.calories;
       const calBuffer = remaining > 0 ? remaining : 500;
 
-      // Generate all in parallel for speed (including workout)
-      const [mealResults, workoutResult] = await Promise.all([
-        suggestDailyMeals(calBuffer, userProfile, stats.caloriesGoal),
-        suggestWorkout(15, userProfile)
-      ]);
+      // Stagger calls to avoid hitting rate limits (RPM)
+      const mealResults = await suggestDailyMeals(calBuffer, userProfile, stats.caloriesGoal);
+      
+      // Short delay before next AI call
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const workoutResult = await suggestWorkout(15, userProfile);
       
       if (!mealResults) throw new Error("Failed to generate meals");
 

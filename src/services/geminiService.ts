@@ -36,7 +36,7 @@ const handleGenAIError = (error: any): never => {
 
   // Handle Rate Limits (429)
   if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-    throw new Error("AI capacity reached (Rate Limit). This happens on the free tier during high usage. Please wait 30-60 seconds and try again.");
+    throw new Error("AI capacity reached (Rate Limit). This happens on the free tier during high usage. We are automatically retrying, please wait...");
   }
   
   // Handle Key issues (401)
@@ -57,6 +57,30 @@ const handleGenAIError = (error: any): never => {
   throw new Error(message || "An unexpected AI error occurred. Please try again later.");
 };
 
+// Internal retry helper for AI calls
+const withRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> => {
+  let lastError: any;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      const message = err.message || "";
+      const isRateLimit = message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED");
+      
+      if (isRateLimit && i < maxRetries - 1) {
+        // Exponential backoff: 2s, 4s, 8s (with some random jitter)
+        const delay = Math.pow(2, i + 1) * 1000 + (Math.random() * 1000);
+        console.warn(`[AI] Rate limit hit. Retry ${i+1}/${maxRetries} in ${Math.round(delay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+};
+
 export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null, focusArea?: string) => {
   ensureApiKey();
   const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment}.` : '';
@@ -64,7 +88,7 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
   const focusText = focusArea ? `The user wants to FOCUS on: ${focusArea}.` : '';
   
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} ${focusText}
     Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
@@ -82,7 +106,7 @@ export const suggestWorkout = async (remainingMinutes: number, profile: UserProf
     config: {
       temperature: 0.8,
     },
-  });
+  }));
     return response.text;
   } catch (err) {
     handleGenAIError(err);
@@ -96,7 +120,7 @@ export const recommendFocusArea = async (profile: UserProfile | null, stats: Dai
   const goalText = `Goal: ${profile.goal.replace('_', ' ')}. Weight: ${profile.weight}lbs. History: ${foodHistory.length} meals logged.`;
   
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
       contents: `Based on the following data:
       ${goalText}
@@ -124,7 +148,7 @@ export const recommendFocusArea = async (profile: UserProfile | null, stats: Dai
           required: ["area", "reason"]
         }
       }
-    });
+    }));
     
     try {
       return JSON.parse(response.text);
@@ -145,7 +169,7 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
   const highCalorieAlert = remainingCalories > 2800 ? "\n\nALERT: The user has a VERY HIGH calorie requirement. You MUST suggest HEAVY, CALORIE-DENSE meals. Standard healthy portions will NOT be enough. Use calorie-dense healthy fats (avocados, nuts, seeds, oils) and larger portions to reach the target." : "";
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a total daily goal of ${totalDailyGoal} kcal. ${goalText} ${prepText} ${highCalorieAlert}
     Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack. 
@@ -217,7 +241,7 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
         required: ["breakfast", "lunch", "dinner", "snacks"],
       },
     },
-  });
+  }));
 
     try {
       const text = response.text;
@@ -245,7 +269,7 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
                         totalDailyGoal * 0.10; // snacks
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a ${totalDailyGoal} kcal goal. ${highCalorieAlert}
     Suggest a healthy ${mealType} that is EXACTLY ${Math.round(targetCalories)} kcal. 
@@ -273,7 +297,7 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
         required: ["content", "calories"],
       },
     },
-  });
+  }));
 
     try {
       const text = response.text;
@@ -295,7 +319,7 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
     : "";
   
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `The user is a ${profile.age} year old ${profile.gender} with a goal to ${profile.goal.replace('_', ' ')}. 
     Current stats: Weight: ${profile.weight}lbs, Height: ${profile.height}cm, Activity Level: ${profile.activityLevel.replace('_', ' ')}.
@@ -315,7 +339,7 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
     config: {
       temperature: 0.8,
     },
-  });
+  }));
     return response.text;
   } catch (err) {
     handleGenAIError(err);
@@ -325,13 +349,13 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
 export const generateCheer = async (postContent: string) => {
   ensureApiKey();
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`,
     config: {
       temperature: 0.9,
     },
-  });
+  }));
     return response.text;
   } catch (err) {
     handleGenAIError(err);
@@ -343,7 +367,7 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
   const isDeep = mode === 'deep';
   const detailsPrompt = additionalDetails ? `\n\nAdditional user details to consider: "${additionalDetails}"` : "";
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: {
       parts: [
@@ -373,7 +397,7 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
         required: ["name", "calories", "analysis"],
       },
     },
-  });
+  }));
 
     try {
       const text = response.text;
@@ -395,7 +419,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
     : 'No meals logged yet today.';
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
     contents: `The user said: "${transcription}". 
     Evaluate the user's intent. They might be:
@@ -438,7 +462,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
         required: ["intent", "response", "calories", "analysis"],
       },
     },
-  });
+  }));
 
     try {
       const text = response.text;
@@ -456,7 +480,7 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
   ensureApiKey();
   const goalText = profile ? `The user's goal is to ${profile.goal.replace('_', ' ')}.` : '';
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
       contents: {
         parts: [
@@ -490,7 +514,7 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
           required: ["advice", "estimatedCalories"],
         },
       },
-    });
+    }));
 
     try {
       const text = response.text;
@@ -506,18 +530,18 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
 
 export const generateSpeech = async (text: string) => {
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `Say naturally but with a supportive tone: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // 'Kore' is a natural supportive voice
+            prebuiltVoiceConfig: { voiceName: 'Kore' },
           },
         },
       },
-    });
+    }));
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     return base64Audio || null;
