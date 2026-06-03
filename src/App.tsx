@@ -61,7 +61,7 @@ const App: React.FC = () => {
 
   const getDailyLimit = () => {
     if (userProfile?.tier === 'premium') return 9999; // Practically unlimited
-    return 5;
+    return 15;
   };
   const MAX_DAILY_SCANS = getDailyLimit();
   const [notification, setNotification] = useState<{message: string, type: 'error' | 'success' | 'info'} | null>(null);
@@ -186,6 +186,16 @@ const App: React.FC = () => {
     return unsubscribe;
   }, []);
 
+  // Helper for consistent "Scan Day" calculation (resets at 5:00 AM local time)
+  const getTodayStr = () => {
+    const now = new Date();
+    const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+    const year = localNow.getFullYear();
+    const month = String(localNow.getMonth() + 1).padStart(2, '0');
+    const day = String(localNow.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Firestore Sync
   useEffect(() => {
     if (!user || !isAuthReady) return;
@@ -198,7 +208,7 @@ const App: React.FC = () => {
         const data = snapshot.data() as UserProfile & { stats: DailyStats };
         
         // Check for streak reset
-        const today = new Date().toISOString().split('T')[0];
+        const today = getTodayStr();
         const lastDate = data.lastActivityDate;
         const lastResetDate = data.lastStatsResetDate;
         let currentStreak = data.streak || 0;
@@ -234,9 +244,14 @@ const App: React.FC = () => {
         }
 
         if (lastDate && lastDate !== today) {
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          const yesterdayStr = yesterday.toISOString().split('T')[0];
+          const now = new Date();
+          const localYesterday = new Date(now.getTime() - (29 * 60 * 60 * 1000)); // (24 + 5) hours back from now? No.
+          // Better: Calculate 'yesterday' by taking 'today' logic and subtracting another 24 hours.
+          const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
+          const yYear = yDate.getFullYear();
+          const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
+          const yDay = String(yDate.getDate()).padStart(2, '0');
+          const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
           if (lastDate !== yesterdayStr) {
             // Missed a day, reset streak to 0
@@ -344,7 +359,7 @@ const App: React.FC = () => {
     
     try {
       const userDocRef = doc(db, 'users', user.uid);
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayStr();
       const profileWithResetDate = {
         ...profile,
         lastStatsResetDate: today
@@ -368,14 +383,17 @@ const App: React.FC = () => {
       const newStats = { ...stats, [key]: value };
       
       // Update streak
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayStr();
       let newStreak = userProfile?.streak || 0;
       let newLastActivityDate = userProfile?.lastActivityDate;
 
       if (newLastActivityDate !== today) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const now = new Date();
+        const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
+        const yYear = yDate.getFullYear();
+        const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yDate.getDate()).padStart(2, '0');
+        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
         if (newLastActivityDate === yesterdayStr) {
           newStreak += 1;
@@ -423,14 +441,17 @@ const App: React.FC = () => {
       const userDocRef = doc(db, 'users', user.uid);
       const newStats = { ...stats, calories: stats.calories + calories };
       
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayStr();
       let newStreak = userProfile?.streak || 0;
       let newLastActivityDate = userProfile?.lastActivityDate;
 
       if (newLastActivityDate !== today) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const now = new Date();
+        const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
+        const yYear = yDate.getFullYear();
+        const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yDate.getDate()).padStart(2, '0');
+        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
         if (newLastActivityDate === yesterdayStr) {
           newStreak += 1;
@@ -467,11 +488,8 @@ const App: React.FC = () => {
   const incrementAiUsage = async () => {
     if (!user) return false;
     
-    // Custom "Scan Day" calculation: subtract 5 hours from current time.
-    // This makes anything before 5:00 AM count as the previous day.
+    const today = getTodayStr();
     const now = new Date();
-    const scanDayDate = new Date(now.getTime() - (5 * 60 * 60 * 1000));
-    const today = scanDayDate.toISOString().split('T')[0];
     
     let currentScansCount = userProfile?.dailyScansCount || 0;
     const lastScanDate = userProfile?.lastScanDate;

@@ -50,7 +50,14 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
     targetWeight: 165,
     streak: 0,
     unitSystem: 'imperial',
-    lastStatsResetDate: new Date().toISOString().split('T')[0],
+    lastStatsResetDate: (() => {
+      const now = new Date();
+      const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+      const year = localNow.getFullYear();
+      const month = String(localNow.getMonth() + 1).padStart(2, '0');
+      const day = String(localNow.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    })(),
     onboarded: false,
     hasAcceptedTerms: false
   });

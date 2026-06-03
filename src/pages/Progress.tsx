@@ -27,7 +27,16 @@ const Progress: React.FC<{ stats: DailyStats, history: DailyHistoryEntry[], user
   };
 
   const chartData = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const getTodayStr = () => {
+    const now = new Date();
+    const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+    const year = localNow.getFullYear();
+    const month = String(localNow.getMonth() + 1).padStart(2, '0');
+    const day = String(localNow.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const today = getTodayStr();
     const allData = [...history, { ...stats, date: today }].sort((a, b) => a.date.localeCompare(b.date));
     
     const now = new Date();

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Dumbbell, 
   Sparkles, 
@@ -53,12 +53,28 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
   const [isRecommending, setIsRecommending] = useState(false);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const lastProcessedFoodCount = useRef(foodLog.length);
 
   useEffect(() => {
     if (userProfile && !recommendation) {
       handleGetRecommendation();
     }
   }, [userProfile]);
+
+  // Auto-refresh recommendation when food log changes
+  useEffect(() => {
+    if (foodLog.length > lastProcessedFoodCount.current) {
+      // A new meal was added! 
+      // Refresh after a small delay to allow Dashboard calls to finish or queue up properly
+      const timer = setTimeout(() => {
+        handleGetRecommendation();
+      }, 3000);
+      lastProcessedFoodCount.current = foodLog.length;
+      return () => clearTimeout(timer);
+    } else if (foodLog.length < lastProcessedFoodCount.current) {
+      lastProcessedFoodCount.current = foodLog.length;
+    }
+  }, [foodLog.length]);
 
   const handleGetRecommendation = async () => {
     setIsRecommending(true);

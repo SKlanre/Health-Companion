@@ -162,8 +162,11 @@ const FoodAssistant: React.FC<Props> = ({ isOpen, onClose, stats, userProfile, f
   if (!isOpen) return null;
 
   const now = new Date();
-  const scanDayDate = new Date(now.getTime() - (5 * 60 * 60 * 1000));
-  const today = scanDayDate.toISOString().split('T')[0];
+  const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+  const year = localNow.getFullYear();
+  const month = String(localNow.getMonth() + 1).padStart(2, '0');
+  const day = String(localNow.getDate()).padStart(2, '0');
+  const today = `${year}-${month}-${day}`;
   const scanCountToday = userProfile?.lastScanDate === today ? (userProfile?.dailyScansCount || 0) : 0;
   const remainingScans = Math.max(0, maxDailyScans - scanCountToday);
 

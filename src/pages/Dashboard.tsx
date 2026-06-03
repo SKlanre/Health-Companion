@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sparkles, 
   Utensils, 
@@ -54,6 +54,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   const [adjustmentType, setAdjustmentType] = useState<'set' | 'add' | 'sub'>('set');
   const [selectedMealType, setSelectedMealType] = useState('breakfast');
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const lastProcessedFoodCount = useRef(foodLog.length);
 
   const fetchCoachTip = async () => {
     if (!userProfile) return;
@@ -307,6 +308,25 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     initializeDashboard();
   }, []);
 
+  // Auto-refresh tips when food log changes
+  useEffect(() => {
+    if (foodLog.length > lastProcessedFoodCount.current) {
+      // A new meal was added! Trigger a refresh.
+      // Wait a moment for Firestore to settle and stats to update if needed
+      const timer = setTimeout(() => {
+        fetchCoachTip();
+        // Also refresh meal plan suggestions since calories changed
+        preloadMeals(true);
+      }, 1500);
+      
+      lastProcessedFoodCount.current = foodLog.length;
+      return () => clearTimeout(timer);
+    } else if (foodLog.length < lastProcessedFoodCount.current) {
+      // Something was deleted, update count but don't necessarily call AI immediately
+      lastProcessedFoodCount.current = foodLog.length;
+    }
+  }, [foodLog.length]);
+
   const getMetricInfo = (key: keyof DailyStats | null) => {
     const isMetric = userProfile?.unitSystem === 'metric';
     switch (key) {
@@ -324,8 +344,11 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   };
 
   const now = new Date();
-  const scanDayDate = new Date(now.getTime() - (5 * 60 * 60 * 1000));
-  const today = scanDayDate.toISOString().split('T')[0];
+  const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+  const year = localNow.getFullYear();
+  const month = String(localNow.getMonth() + 1).padStart(2, '0');
+  const day = String(localNow.getDate()).padStart(2, '0');
+  const today = `${year}-${month}-${day}`;
   const scanCountToday = userProfile?.lastScanDate === today ? (userProfile?.dailyScansCount || 0) : 0;
   const remainingScans = Math.max(0, maxDailyScans - scanCountToday);
 
