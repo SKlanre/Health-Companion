@@ -1,5 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInAnonymously, 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged, 
+  User 
+} from 'firebase/auth';
 import { initializeFirestore, doc, getDoc, setDoc, updateDoc, collection, onSnapshot, query, orderBy, limit, addDoc, getDocFromServer, where, deleteDoc, serverTimestamp, increment, getDocs } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -59,7 +68,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 // Test connection
@@ -76,6 +84,9 @@ testConnection();
 
 export { 
   signInWithPopup, 
+  signInAnonymously,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
   onAuthStateChanged, 
   doc, 
   getDoc, 
@@ -94,3 +105,5 @@ export {
   getDocs
 };
 export type { User };
+
+

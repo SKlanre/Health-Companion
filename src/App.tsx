@@ -17,8 +17,13 @@ import {
   RefreshCw,
   LogIn, 
   User as UserIcon,
+  UserCheck,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import FoodAssistant from './components/FoodAssistant';
 import Community from './pages/Community';
@@ -32,6 +37,9 @@ import {
   db, 
   googleProvider, 
   signInWithPopup, 
+  signInAnonymously,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
   onAuthStateChanged, 
   doc, 
   getDoc, 
@@ -297,7 +305,9 @@ const App: React.FC = () => {
       // This prevents the onboarding from popping up for a split second for existing users
       setIsProfileLoaded(true);
     }, (error) => {
+      console.warn("User profile sync error:", error);
       handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+      setIsProfileLoaded(true);
     });
 
     // Sync Food Logs
@@ -341,16 +351,86 @@ const App: React.FC = () => {
     };
   }, [user, isAuthReady]);
 
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
   const handleLogin = async () => {
+    setLoginLoading(true);
+    setLoginError(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
       console.error("Login failed", error);
+      let errMsg = error.message || "Failed to sign in.";
       if (error.code === 'auth/unauthorized-domain') {
-        showNotification(`Domain Not Authorized: Please add '${window.location.hostname}' to Authorized Domains in your Firebase Console (Authentication > Settings).`);
-      } else {
-        showNotification("Login failed: " + error.message);
+        errMsg = `Google Sign-In is not allowed on this domain (${window.location.hostname}) until added to Firebase Authorized Domains. Use Email & Password or Guest Sign-In below!`;
+      } else if (error.code === 'auth/popup-blocked') {
+        errMsg = "Sign-in popup was blocked by your browser. Please allow popups or use Email & Password / Guest Sign-In below.";
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        errMsg = "Sign-in popup was closed before completing.";
       }
+      setLoginError(errMsg);
+      showNotification(errMsg, 'error');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setLoginError("Please enter both email and password.");
+      return;
+    }
+    setLoginLoading(true);
+    setLoginError(null);
+
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        showNotification("Account created successfully!", "success");
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+        showNotification("Logged in successfully!", "success");
+      }
+    } catch (error: any) {
+      console.error("Email auth error:", error);
+      let errMsg = "Authentication failed. Please check your credentials.";
+      if (error.code === 'auth/email-already-in-use') {
+        errMsg = "This email is already registered. Please click 'Sign In' instead.";
+      } else if (error.code === 'auth/invalid-email') {
+        errMsg = "Please enter a valid email address.";
+      } else if (error.code === 'auth/weak-password') {
+        errMsg = "Password should be at least 6 characters long.";
+      } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errMsg = "Incorrect email or password. If you don't have an account, click 'Create Account' below.";
+      } else if (error.message) {
+        errMsg = error.message;
+      }
+      setLoginError(errMsg);
+      showNotification(errMsg, 'error');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      await signInAnonymously(auth);
+      showNotification("Signed in as Guest", "info");
+    } catch (error: any) {
+      console.error("Guest login failed", error);
+      const errMsg = "Guest login failed: " + (error.message || "Could not sign in anonymously.");
+      setLoginError(errMsg);
+      showNotification(errMsg, 'error');
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -771,20 +851,161 @@ const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-10 text-center transition-colors duration-300">
-        <div className="w-24 h-24 rounded-[32px] bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-4xl shadow-2xl mb-8">
+      <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center transition-colors duration-300 relative overflow-hidden">
+        {/* Background Decorative Glow */}
+        <div className="absolute -top-24 -left-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-16 h-16 rounded-[24px] bg-gradient-to-tr from-indigo-500 via-indigo-600 to-purple-500 flex items-center justify-center text-white font-black text-2xl shadow-xl shadow-indigo-500/20 mb-4 border-2 border-white/20">
           A
         </div>
-        <h1 className="text-4xl font-black text-gray-900 dark:text-white mb-4">Welcome to FitAI</h1>
-        <p className="text-gray-500 dark:text-slate-400 mb-12 leading-relaxed">Your smart fitness companion. Log in to track your progress and access personalized AI coaching.</p>
-        
-        <button 
-          onClick={handleLogin}
-          className="w-full p-5 bg-white dark:bg-slate-900 border-2 border-gray-100 dark:border-slate-800 rounded-3xl flex items-center justify-center gap-4 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all shadow-sm active:scale-95"
-        >
-          <LogIn className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-          <span className="text-lg font-black text-gray-900 dark:text-white">Sign in with Google</span>
-        </button>
+        <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Welcome to FitAI</h1>
+        <p className="text-gray-500 dark:text-slate-400 mb-6 leading-relaxed text-xs max-w-xs">
+          Your AI fitness companion. Sign in or create an account to start tracking meals and workouts.
+        </p>
+
+        {/* Login Error Banner */}
+        {loginError && (
+          <div className="w-full mb-5 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-semibold text-left flex items-start gap-3 animate-in fade-in duration-300">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-normal">
+              <p className="font-bold mb-0.5 text-rose-800 dark:text-rose-200">Unable to Sign In</p>
+              <p>{loginError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Email / Password Form Card */}
+        <div className="w-full bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-4 text-left">
+          <form onSubmit={handleEmailAuth} className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-gray-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700/80 rounded-xl text-sm font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-gray-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input 
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700/80 rounded-xl text-sm font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button 
+              type="submit"
+              disabled={loginLoading}
+              className="w-full mt-2 py-3 bg-indigo-600 text-white rounded-xl flex items-center justify-center gap-2 font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-600/20 active:scale-95 disabled:opacity-50 text-sm"
+            >
+              {loginLoading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogIn className="w-4 h-4" />
+              )}
+              <span>{isSignUp ? 'Create Account' : 'Sign In with Email'}</span>
+            </button>
+
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setLoginError(null);
+                }}
+                className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+              >
+                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Create one"}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Divider */}
+        <div className="w-full flex items-center gap-3 my-2">
+          <div className="flex-1 h-px bg-gray-200 dark:bg-slate-800" />
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">or</span>
+          <div className="flex-1 h-px bg-gray-200 dark:bg-slate-800" />
+        </div>
+
+        {/* Alternative Actions */}
+        <div className="w-full space-y-2 mt-2">
+          <button 
+            onClick={handleLogin}
+            disabled={loginLoading}
+            className="w-full p-3.5 bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-100 border border-gray-200 dark:border-slate-800 rounded-2xl flex items-center justify-center gap-3 font-bold hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-all shadow-sm active:scale-95 disabled:opacity-50 text-sm"
+          >
+            {loginLoading ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <LogIn className="w-4 h-4 text-indigo-500" />
+            )}
+            <span>Sign in with Google</span>
+          </button>
+
+          <button 
+            onClick={handleGuestLogin}
+            disabled={loginLoading}
+            className="w-full p-3.5 bg-gray-100 dark:bg-slate-800/50 text-gray-700 dark:text-slate-300 rounded-2xl flex items-center justify-center gap-3 font-semibold hover:bg-gray-200/80 dark:hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 text-xs"
+          >
+            <UserCheck className="w-4 h-4 text-purple-500" />
+            <span>Continue as Guest</span>
+          </button>
+        </div>
+
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-4 leading-normal">
+          Hosted on Vercel or Custom Domain? Use <strong>Email Sign In</strong> or <strong>Guest Mode</strong> for instant access.
+        </p>
+
+        {/* Notification Toast on Login Screen */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[280px] max-w-[90vw] ${
+                notification.type === 'error' 
+                  ? 'bg-rose-600 text-white shadow-rose-200 dark:shadow-rose-950/40' 
+                  : notification.type === 'info'
+                    ? 'bg-indigo-600 text-white shadow-indigo-200 dark:shadow-indigo-950/40'
+                    : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-emerald-950/40'
+              }`}
+            >
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <p className="font-semibold text-xs leading-snug flex-1">{notification.message}</p>
+              <button onClick={() => setNotification(null)} className="p-1 hover:bg-white/10 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
