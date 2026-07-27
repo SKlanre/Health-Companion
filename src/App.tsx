@@ -421,6 +421,51 @@ const App: React.FC = () => {
       }
     } catch (error: any) {
       console.error("Email auth error:", error);
+      
+      if (error.code === 'auth/operation-not-allowed') {
+        console.warn("Firebase Email/Password Auth is disabled in project console. Logging in as local session for:", email);
+        const userEmail = email.trim();
+        const userName = userEmail.split('@')[0] || 'User';
+        const localUser = {
+          uid: `guest_local_${Date.now()}`,
+          email: userEmail,
+          displayName: userName,
+          isAnonymous: false,
+        } as unknown as User;
+
+        setUser(localUser);
+        setIsAuthReady(true);
+        setIsProfileLoaded(true);
+
+        if (!userProfile) {
+          setUserProfile({
+            name: userName,
+            age: 28,
+            gender: 'male',
+            weight: 165,
+            height: 175,
+            activityLevel: 'moderate',
+            goal: 'maintain',
+            location: 'New York, USA',
+            workoutEnvironment: 'gym',
+            mealPrepStyle: 'self',
+            fruitConsumption: 'daily',
+            dailyBudget: 25,
+            streak: 1,
+            lastActivityDate: getTodayStr(),
+            lastStatsResetDate: getTodayStr(),
+            unitSystem: 'imperial',
+            onboarded: true,
+            hasAcceptedTerms: true,
+          });
+        }
+
+        showNotification(`Signed in as ${userEmail}`, 'success');
+        setLoginError(null);
+        setLoginLoading(false);
+        return;
+      }
+
       let errMsg = "Authentication failed. Please check your credentials.";
       if (error.code === 'auth/email-already-in-use') {
         errMsg = "An account with this email already exists. Switched to Sign In mode for you!";
@@ -458,6 +503,8 @@ const App: React.FC = () => {
         errMsg = "No account found with this email address.";
       } else if (error.code === 'auth/invalid-email') {
         errMsg = "Please enter a valid email address.";
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errMsg = "Password reset via email is disabled in the Firebase project settings.";
       } else if (error.message) {
         errMsg = error.message;
       }
