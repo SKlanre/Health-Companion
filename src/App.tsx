@@ -213,7 +213,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user || !isAuthReady) return;
 
-    if (user.uid.startsWith('guest_local_')) {
+    if (user.uid.startsWith('guest_local_') || user.uid.startsWith('user_')) {
       setIsProfileLoaded(true);
       return;
     }
@@ -426,8 +426,9 @@ const App: React.FC = () => {
         console.warn("Firebase Email/Password Auth is disabled in project console. Logging in as local session for:", email);
         const userEmail = email.trim();
         const userName = userEmail.split('@')[0] || 'User';
+        const accountUid = `user_${userEmail.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
         const localUser = {
-          uid: `guest_local_${Date.now()}`,
+          uid: accountUid,
           email: userEmail,
           displayName: userName,
           isAnonymous: false,
@@ -437,7 +438,19 @@ const App: React.FC = () => {
         setIsAuthReady(true);
         setIsProfileLoaded(true);
 
-        if (!userProfile) {
+        // Check if there's a stored profile for this account in local storage
+        const savedProfileKey = `fitai_profile_${userEmail.toLowerCase()}`;
+        const savedProfileJson = localStorage.getItem(savedProfileKey);
+        
+        if (savedProfileJson) {
+          try {
+            const parsed = JSON.parse(savedProfileJson);
+            setUserProfile(parsed);
+          } catch (e) {
+            console.error("Failed to parse saved profile", e);
+          }
+        } else if (!userProfile) {
+          // New account sign-in: Set onboarded: false so the questionnaire opens!
           setUserProfile({
             name: userName,
             age: 28,
@@ -446,7 +459,7 @@ const App: React.FC = () => {
             height: 175,
             activityLevel: 'moderate',
             goal: 'maintain',
-            location: 'New York, USA',
+            location: '',
             workoutEnvironment: 'gym',
             mealPrepStyle: 'self',
             fruitConsumption: 'daily',
@@ -455,8 +468,8 @@ const App: React.FC = () => {
             lastActivityDate: getTodayStr(),
             lastStatsResetDate: getTodayStr(),
             unitSystem: 'imperial',
-            onboarded: true,
-            hasAcceptedTerms: true,
+            onboarded: false, // <-- Opens Questionnaire / Skip option
+            hasAcceptedTerms: false,
           });
         }
 
@@ -594,6 +607,10 @@ const App: React.FC = () => {
     // Update local React state immediately so UI dismisses Onboarding modal without waiting
     setUserProfile(profileWithResetDate);
     setStats(initialStats);
+
+    if (user?.email) {
+      localStorage.setItem(`fitai_profile_${user.email.toLowerCase()}`, JSON.stringify(profileWithResetDate));
+    }
 
     if (user && !user.uid.startsWith('guest_local_')) {
       try {
@@ -969,9 +986,9 @@ const App: React.FC = () => {
   const isGuest = Boolean(
     user && (
       user.isAnonymous ||
-      user.uid?.startsWith('guest_local_') ||
-      user.email?.toLowerCase().includes('guest') ||
-      user.displayName?.toLowerCase().includes('guest')
+      user.email === 'guest@fitai.app' ||
+      user.email === 'guest_demo@fitai.app' ||
+      (user.email?.startsWith('guest_') && user.email?.endsWith('@fitai.app'))
     )
   );
 
