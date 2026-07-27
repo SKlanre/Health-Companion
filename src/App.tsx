@@ -24,7 +24,9 @@ import {
   Mail,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  UserPlus,
+  LogOut
 } from 'lucide-react';
 import FoodAssistant from './components/FoodAssistant';
 import Community from './pages/Community';
@@ -41,6 +43,7 @@ import {
   signInAnonymously,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   onAuthStateChanged, 
   doc, 
   getDoc, 
@@ -210,6 +213,11 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user || !isAuthReady) return;
 
+    if (user.uid.startsWith('guest_local_')) {
+      setIsProfileLoaded(true);
+      return;
+    }
+
     const userDocRef = doc(db, 'users', user.uid);
     
     // Sync Profile & Stats
@@ -363,21 +371,33 @@ const App: React.FC = () => {
   const handleLogin = async () => {
     setLoginLoading(true);
     setLoginError(null);
+
+    // Timeout guard so the UI never hangs indefinitely in WebViews or APK wrappers
+    const timeoutId = setTimeout(() => {
+      setLoginLoading(false);
+      const errMsg = "Google Sign-In popup timed out. Google blocks web popups inside Android APK WebViews. Please sign in with Email & Password or Guest Mode above!";
+      setLoginError(errMsg);
+      showNotification(errMsg, 'error');
+    }, 10000);
+
     try {
       await signInWithPopup(auth, googleProvider);
+      clearTimeout(timeoutId);
     } catch (error: any) {
+      clearTimeout(timeoutId);
       console.error("Login failed", error);
       let errMsg = error.message || "Failed to sign in.";
       if (error.code === 'auth/unauthorized-domain') {
         errMsg = `Google Sign-In is not allowed on this domain (${window.location.hostname}) until added to Firebase Authorized Domains. Use Email & Password or Guest Sign-In below!`;
-      } else if (error.code === 'auth/popup-blocked') {
-        errMsg = "Sign-in popup was blocked by your browser. Please allow popups or use Email & Password / Guest Sign-In below.";
+      } else if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+        errMsg = "Sign-in popup was blocked or not supported in this app environment / APK. Please use Email & Password or Guest Sign-In above!";
       } else if (error.code === 'auth/popup-closed-by-user') {
         errMsg = "Sign-in popup was closed before completing.";
       }
       setLoginError(errMsg);
       showNotification(errMsg, 'error');
     } finally {
+      clearTimeout(timeoutId);
       setLoginLoading(false);
     }
   };
@@ -403,13 +423,41 @@ const App: React.FC = () => {
       console.error("Email auth error:", error);
       let errMsg = "Authentication failed. Please check your credentials.";
       if (error.code === 'auth/email-already-in-use') {
-        errMsg = "This email is already registered. Please click 'Sign In' instead.";
+        errMsg = "An account with this email already exists. Switched to Sign In mode for you!";
+        setIsSignUp(false);
       } else if (error.code === 'auth/invalid-email') {
         errMsg = "Please enter a valid email address.";
       } else if (error.code === 'auth/weak-password') {
         errMsg = "Password should be at least 6 characters long.";
       } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errMsg = "Incorrect email or password. If you don't have an account, click 'Create Account' below.";
+        errMsg = "Incorrect email or password. If you don't have an account yet, click 'Create Account' above.";
+      } else if (error.message) {
+        errMsg = error.message;
+      }
+      setLoginError(errMsg);
+      showNotification(errMsg, 'error');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      setLoginError("Please enter your email address above to receive a password reset link.");
+      showNotification("Please enter your email address first.", "info");
+      return;
+    }
+    setLoginLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      showNotification("Password reset email sent! Check your inbox.", "success");
+      setLoginError(null);
+    } catch (error: any) {
+      let errMsg = "Failed to send password reset email.";
+      if (error.code === 'auth/user-not-found') {
+        errMsg = "No account found with this email address.";
+      } else if (error.code === 'auth/invalid-email') {
+        errMsg = "Please enter a valid email address.";
       } else if (error.message) {
         errMsg = error.message;
       }
@@ -488,124 +536,135 @@ const App: React.FC = () => {
   };
 
   const handleOnboardingComplete = async (profile: UserProfile, initialStats: DailyStats) => {
-    if (!user) return;
-    
-    try {
-      const userDocRef = doc(db, 'users', user.uid);
-      const today = getTodayStr();
-      const profileWithResetDate = {
-        ...profile,
-        lastStatsResetDate: today
-      };
-      await setDoc(userDocRef, {
-        ...profileWithResetDate,
-        stats: initialStats
-      }, { merge: true });
-      setUserProfile(profileWithResetDate);
-      setStats(initialStats);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
+    const today = getTodayStr();
+    const profileWithResetDate: UserProfile = {
+      ...profile,
+      onboarded: true,
+      hasAcceptedTerms: true,
+      lastStatsResetDate: today
+    };
+
+    // Update local React state immediately so UI dismisses Onboarding modal without waiting
+    setUserProfile(profileWithResetDate);
+    setStats(initialStats);
+
+    if (user && !user.uid.startsWith('guest_local_')) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, {
+          ...profileWithResetDate,
+          stats: initialStats
+        }, { merge: true });
+      } catch (error) {
+        console.warn("Could not save user onboarding data to Firestore (Guest/Offline mode):", error);
+      }
     }
   };
 
   const handleUpdateStat = async (key: keyof DailyStats, value: number) => {
     if (!user) return;
     
-    try {
-      const userDocRef = doc(db, 'users', user.uid);
-      const newStats = { ...stats, [key]: value };
-      
-      // Update streak
-      const today = getTodayStr();
-      let newStreak = userProfile?.streak || 0;
-      let newLastActivityDate = userProfile?.lastActivityDate;
+    const newStats = { ...stats, [key]: value };
+    
+    // Update streak
+    const today = getTodayStr();
+    let newStreak = userProfile?.streak || 0;
+    let newLastActivityDate = userProfile?.lastActivityDate;
 
-      if (newLastActivityDate !== today) {
-        const now = new Date();
-        const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
-        const yYear = yDate.getFullYear();
-        const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yDate.getDate()).padStart(2, '0');
-        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+    if (newLastActivityDate !== today) {
+      const now = new Date();
+      const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
+      const yYear = yDate.getFullYear();
+      const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
+      const yDay = String(yDate.getDate()).padStart(2, '0');
+      const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
-        if (newLastActivityDate === yesterdayStr) {
-          newStreak += 1;
-        } else {
-          newStreak = 1;
-        }
-        newLastActivityDate = today;
+      if (newLastActivityDate === yesterdayStr) {
+        newStreak += 1;
+      } else {
+        newStreak = 1;
       }
+      newLastActivityDate = today;
+    }
 
-      const updatePayload: any = { 
-        stats: newStats, 
+    // Immediate local state update
+    setStats(newStats);
+    if (userProfile) {
+      setUserProfile({ 
+        ...userProfile, 
         streak: newStreak, 
-        lastActivityDate: newLastActivityDate 
-      };
+        lastActivityDate: newLastActivityDate,
+        weight: key === 'weight' ? value : userProfile.weight
+      });
+    }
 
-      if (key === 'weight') {
-        updatePayload.weight = value;
-      }
-
-      await setDoc(userDocRef, updatePayload, { merge: true });
-      
-      setStats(newStats);
-      if (userProfile) {
-        setUserProfile({ 
-          ...userProfile, 
+    if (!user.uid.startsWith('guest_local_')) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const updatePayload: any = { 
+          stats: newStats, 
           streak: newStreak, 
-          lastActivityDate: newLastActivityDate,
-          weight: key === 'weight' ? value : userProfile.weight
-        });
+          lastActivityDate: newLastActivityDate 
+        };
+
+        if (key === 'weight') {
+          updatePayload.weight = value;
+        }
+
+        await setDoc(userDocRef, updatePayload, { merge: true });
+      } catch (error) {
+        console.warn("Could not sync stat update to Firestore:", error);
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
   };
 
   const handleAddFood = async (name: string, calories: number, analysis?: string) => {
     if (!user) return;
 
-    try {
-      const foodLogsRef = collection(db, 'users', user.uid, 'foodLogs');
-      const newEntry = { name, calories, analysis: analysis || "", timestamp: new Date() };
-      await setDoc(doc(foodLogsRef), newEntry);
-      
-      // Update daily calories and streak
-      const userDocRef = doc(db, 'users', user.uid);
-      const newStats = { ...stats, calories: stats.calories + calories };
-      
-      const today = getTodayStr();
-      let newStreak = userProfile?.streak || 0;
-      let newLastActivityDate = userProfile?.lastActivityDate;
+    const newStats = { ...stats, calories: stats.calories + calories };
+    const today = getTodayStr();
+    let newStreak = userProfile?.streak || 0;
+    let newLastActivityDate = userProfile?.lastActivityDate;
 
-      if (newLastActivityDate !== today) {
-        const now = new Date();
-        const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
-        const yYear = yDate.getFullYear();
-        const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yDate.getDate()).padStart(2, '0');
-        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+    if (newLastActivityDate !== today) {
+      const now = new Date();
+      const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
+      const yYear = yDate.getFullYear();
+      const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
+      const yDay = String(yDate.getDate()).padStart(2, '0');
+      const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
-        if (newLastActivityDate === yesterdayStr) {
-          newStreak += 1;
-        } else {
-          newStreak = 1;
-        }
-        newLastActivityDate = today;
+      if (newLastActivityDate === yesterdayStr) {
+        newStreak += 1;
+      } else {
+        newStreak = 1;
       }
+      newLastActivityDate = today;
+    }
 
-      await setDoc(userDocRef, { 
-        stats: newStats, 
-        streak: newStreak, 
-        lastActivityDate: newLastActivityDate 
-      }, { merge: true });
-      
-      setStats(newStats);
-      if (userProfile) {
-        setUserProfile({ ...userProfile, streak: newStreak, lastActivityDate: newLastActivityDate });
+    // Immediate local state update
+    setStats(newStats);
+    if (userProfile) {
+      setUserProfile({ ...userProfile, streak: newStreak, lastActivityDate: newLastActivityDate });
+    }
+    const localEntry: FoodLogEntry = { id: `log_${Date.now()}`, name, calories, timestamp: new Date() };
+    setFoodLog(prev => [localEntry, ...prev]);
+
+    if (!user.uid.startsWith('guest_local_')) {
+      try {
+        const foodLogsRef = collection(db, 'users', user.uid, 'foodLogs');
+        const newEntry = { name, calories, analysis: analysis || "", timestamp: new Date() };
+        await setDoc(doc(foodLogsRef), newEntry);
+        
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { 
+          stats: newStats, 
+          streak: newStreak, 
+          lastActivityDate: newLastActivityDate 
+        }, { merge: true });
+      } catch (error) {
+        console.warn("Could not sync food log to Firestore:", error);
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/foodLogs`);
     }
   };
 
@@ -860,6 +919,41 @@ const App: React.FC = () => {
     }
   };
 
+  const isGuest = Boolean(
+    user && (
+      user.isAnonymous ||
+      user.uid?.startsWith('guest_local_') ||
+      user.email?.toLowerCase().includes('guest') ||
+      user.displayName?.toLowerCase().includes('guest')
+    )
+  );
+
+  const handleSignOut = async () => {
+    try {
+      await auth.signOut();
+    } catch (err) {
+      console.warn("Sign out warning:", err);
+    }
+    setUser(null);
+    setUserProfile(null);
+    setIsProfileLoaded(false);
+    setActiveTab('dashboard');
+    showNotification("Exited session", "info");
+  };
+
+  const handleOpenAuth = async (mode: 'signin' | 'signup' = 'signup') => {
+    try {
+      await auth.signOut();
+    } catch (err) {
+      console.warn("Sign out warning:", err);
+    }
+    setUser(null);
+    setUserProfile(null);
+    setIsProfileLoaded(false);
+    setIsSignUp(mode === 'signup');
+    setActiveTab('dashboard');
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -882,6 +976,7 @@ const App: React.FC = () => {
         return <Profile 
           profile={userProfile} 
           history={dailyHistory}
+          isGuest={isGuest}
           onReset={() => {
             if (userProfile) {
               setUserProfile({ ...userProfile, onboarded: false });
@@ -891,6 +986,8 @@ const App: React.FC = () => {
           onUpdateFullProfile={handleUpdateFullProfile}
           darkMode={darkMode} 
           onToggleDarkMode={handleToggleDarkMode} 
+          onSignOut={handleSignOut}
+          onOpenAuth={handleOpenAuth}
         />;
       default:
         return <Dashboard 
@@ -953,6 +1050,38 @@ const App: React.FC = () => {
 
         {/* Email / Password Form Card */}
         <div className="w-full bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-4 text-left">
+          {/* Mode Switcher Tabs */}
+          <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-2xl mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(false);
+                setLoginError(null);
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                !isSignUp
+                  ? 'bg-white dark:bg-slate-900 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(true);
+                setLoginError(null);
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                isSignUp
+                  ? 'bg-white dark:bg-slate-900 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+
           <form onSubmit={handleEmailAuth} className="space-y-3">
             <div>
               <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
@@ -972,9 +1101,20 @@ const App: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                Password
-              </label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+                  Password
+                </label>
+                {!isSignUp && (
+                  <button
+                    type="button"
+                    onClick={handleResetPassword}
+                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-gray-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input 
@@ -1002,24 +1142,13 @@ const App: React.FC = () => {
             >
               {loginLoading ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : isSignUp ? (
+                <UserPlus className="w-4 h-4" />
               ) : (
                 <LogIn className="w-4 h-4" />
               )}
-              <span>{isSignUp ? 'Create Account' : 'Sign In with Email'}</span>
+              <span>{isSignUp ? 'Create Account with Email' : 'Sign In with Email'}</span>
             </button>
-
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setLoginError(null);
-                }}
-                className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-              >
-                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Create one"}
-              </button>
-            </div>
           </form>
         </div>
 
@@ -1060,7 +1189,7 @@ const App: React.FC = () => {
         </div>
 
         <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-4 leading-normal">
-          Hosted on Vercel or Custom Domain? Use <strong>Email Sign In</strong> or <strong>Guest Mode</strong> for instant access.
+          Using as a <strong>Mobile APK / App</strong> or custom domain? Use <strong>Email Sign In</strong> or <strong>Guest Mode</strong> for instant access.
         </p>
 
         {/* Notification Toast on Login Screen */}
@@ -1115,16 +1244,33 @@ const App: React.FC = () => {
 
       {/* Header */}
       <header className="p-6 flex justify-between items-center bg-transparent z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 border-2 border-white dark:border-slate-800">
-            {userProfile?.name?.charAt(0) || 'A'}
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 border-2 border-white dark:border-slate-800 shrink-0">
+            {userProfile?.name?.charAt(0) || 'G'}
           </div>
           <div>
-            <h2 className="text-[11px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">Good morning,</h2>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white leading-none">{userProfile?.name || 'Alex'}</h1>
+            <div className="flex items-center gap-1.5 mb-1">
+              <h2 className="text-[11px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none">Good morning,</h2>
+              {isGuest && (
+                <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-black uppercase tracking-wider rounded-full border border-amber-200 dark:border-amber-800/60 leading-none">
+                  Guest
+                </span>
+              )}
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 dark:text-white leading-none">{userProfile?.name || 'Guest User'}</h1>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {isGuest && (
+            <button 
+              onClick={() => handleOpenAuth('signup')}
+              className="px-3 py-2 bg-indigo-600 text-white rounded-xl font-black text-[11px] uppercase tracking-wider shadow-md shadow-indigo-600/20 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign Up / Sign In</span>
+              <span className="sm:hidden">Sign In</span>
+            </button>
+          )}
           <button className="p-2.5 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 text-gray-600 dark:text-slate-400 hover:theme-text transition-colors">
             <Search className="w-5 h-5" />
           </button>

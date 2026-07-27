@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle, Edit3 } from 'lucide-react';
+import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle, Edit3, UserPlus, LogIn } from 'lucide-react';
 import { UserProfile, DailyHistoryEntry, DailyStats } from '../types';
 import { auth, db, doc, setDoc, handleFirestoreError, OperationType } from '../firebase';
 import EditProfile from '../components/EditProfile';
@@ -8,14 +8,28 @@ import EditProfile from '../components/EditProfile';
 interface ProfileProps {
   profile: UserProfile | null;
   history?: DailyHistoryEntry[];
+  isGuest?: boolean;
   onReset: () => void;
   onRestoreStats: () => Promise<boolean>;
   onUpdateFullProfile: (profile: UserProfile, stats: DailyStats) => Promise<void>;
   darkMode: boolean;
   onToggleDarkMode: () => void;
+  onSignOut?: () => void;
+  onOpenAuth?: (mode?: 'signin' | 'signup') => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreStats, onUpdateFullProfile, darkMode, onToggleDarkMode }) => {
+const Profile: React.FC<ProfileProps> = ({ 
+  profile, 
+  history, 
+  isGuest,
+  onReset, 
+  onRestoreStats, 
+  onUpdateFullProfile, 
+  darkMode, 
+  onToggleDarkMode,
+  onSignOut,
+  onOpenAuth
+}) => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showRestoreSuccess, setShowRestoreSuccess] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -23,7 +37,11 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
   if (!profile) return null;
 
   const handleSignOut = () => {
-    auth.signOut();
+    if (onSignOut) {
+      onSignOut();
+    } else {
+      auth.signOut();
+    }
   };
 
   const handleRestoreFullData = async () => {
@@ -79,11 +97,18 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
       <h1 className="text-2xl font-black text-gray-900 dark:text-white">Profile</h1>
 
       <div className="bg-white dark:bg-slate-900 p-6 rounded-[32px] shadow-sm border border-gray-50 dark:border-slate-800 flex items-center gap-4">
-        <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black border-4 border-white dark:border-slate-800 shadow-lg">
+        <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black border-4 border-white dark:border-slate-800 shadow-lg shrink-0">
           {profile.name.charAt(0)}
         </div>
-        <div>
-          <h2 className="text-xl font-black text-gray-900 dark:text-white">{profile.name}</h2>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-black text-gray-900 dark:text-white truncate">{profile.name}</h2>
+            {isGuest && (
+              <span className="px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 text-[10px] font-black uppercase tracking-wider rounded-full border border-amber-200/80 dark:border-amber-800/60 shrink-0">
+                Guest Mode
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1 text-gray-400">
             <MapPin className="w-3 h-3" />
             <span className="text-xs font-bold">{profile.location}</span>
@@ -201,12 +226,46 @@ const Profile: React.FC<ProfileProps> = ({ profile, history, onReset, onRestoreS
         <MenuButton icon={<Settings className="text-gray-500" />} label="App Settings" />
       </div>
 
-      <button 
-        onClick={handleSignOut}
-        className="w-full p-5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-50 dark:border-slate-800 flex items-center justify-center gap-2 text-red-500 font-black hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-      >
-        <LogOut className="w-5 h-5" /> Sign Out
-      </button>
+      {isGuest ? (
+        <div className="bg-gradient-to-br from-indigo-50/80 via-white to-purple-50/80 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 p-6 rounded-[32px] shadow-sm border border-indigo-100/80 dark:border-indigo-900/40 space-y-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-3 bg-indigo-600 text-white rounded-2xl shrink-0 shadow-md shadow-indigo-600/20">
+              <UserPlus className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-black text-gray-900 dark:text-white text-base">You are in Guest Mode</h3>
+              <p className="text-xs text-gray-600 dark:text-slate-300 font-medium leading-relaxed mt-0.5">
+                Your logs and stats are active for this browser session. Sign in or create an account to save your fitness journey permanently.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <button 
+              onClick={() => onOpenAuth && onOpenAuth('signup')}
+              className="w-full py-3.5 px-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 active:scale-95 transition-all"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Sign In / Create Account</span>
+            </button>
+
+            <button 
+              onClick={handleSignOut}
+              className="w-full py-3.5 px-4 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 active:scale-95 transition-all shadow-sm"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Exit Guest Mode</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button 
+          onClick={handleSignOut}
+          className="w-full p-5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-50 dark:border-slate-800 flex items-center justify-center gap-2 text-rose-500 font-black hover:bg-rose-50 dark:hover:bg-rose-950/30 active:scale-95 transition-all text-sm"
+        >
+          <LogOut className="w-5 h-5" /> Sign Out
+        </button>
+      )}
 
       <EditProfile 
         profile={profile}
