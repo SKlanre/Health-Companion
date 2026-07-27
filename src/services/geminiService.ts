@@ -376,7 +376,7 @@ export const generateCheer = async (postContent: string) => {
 export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' = 'quick', additionalDetails?: string) => {
   ensureApiKey();
   const isDeep = mode === 'deep';
-  const detailsPrompt = additionalDetails ? `\n\nAdditional user details to consider: "${additionalDetails}"` : "";
+  const detailsPrompt = additionalDetails ? `\n\nAdditional user details or notes: "${additionalDetails}"` : "";
   try {
     const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-latest',
@@ -389,30 +389,54 @@ export const scanFoodImage = async (base64Data: string, mode: 'quick' | 'deep' =
           },
         },
         {
-          text: (isDeep 
-            ? "Perform a detailed analysis of the food in this image. Consider portion sizes, ingredients, and preparation methods. Estimate calories as accurately as possible. Also provide a brief 1-sentence analysis of the nutritional quality (e.g. 'High in sugar', 'Good protein source'). Return JSON: {'name': string, 'calories': int, 'analysis': string}"
-            : "Identify food and estimate calories quickly. Also provide a brief 1-sentence analysis. Return JSON: {'name': string, 'calories': int, 'analysis': string}") + detailsPrompt,
+          text: `Examine this photo carefully to determine if it contains consumable food/drinks or a non-food item.
+
+RULES:
+1. IF THE IMAGE SHOWS A NON-FOOD OBJECT (e.g. table, chair, human/person, pet, phone, laptop, room, paper, shoe, wall, empty space):
+   - Set "isFood": false
+   - Set "name": A clean label of the object (e.g., "Wooden Table", "Person", "Office Desk", "Laptop")
+   - Set "calories": 0
+   - Set "analysis": A friendly, user-friendly message explaining that no food or calories were detected in this photo, and that non-food items like tables or people don't have calories to check for. Suggest taking a picture of a meal or snack!
+
+2. IF THE IMAGE SHOWS PLAIN DRINKING WATER or ice water:
+   - Set "isFood": true
+   - Set "name": "Plain Water"
+   - Set "calories": 0
+   - Set "analysis": "Drinking water has 0 calories and is essential for optimal hydration! 💧"
+
+3. IF THE IMAGE SHOWS CONSUMABLE FOOD OR CALORIC DRINKS:
+   - Set "isFood": true
+   - Set "name": Specific name of the food or meal (e.g., "Grilled Chicken Salad")
+   - Set "calories": Estimated integer calorie count based on portion size and ingredients
+   - Set "analysis": A brief 1-2 sentence nutritional breakdown (e.g., "Good protein source with high fiber.")` + detailsPrompt,
         },
       ],
     },
     config: {
-      thinkingConfig: { thinkingLevel: isDeep ? ThinkingLevel.LOW : ThinkingLevel.LOW },
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          isFood: { type: Type.BOOLEAN },
           name: { type: Type.STRING },
           calories: { type: Type.INTEGER },
           analysis: { type: Type.STRING },
         },
-        required: ["name", "calories", "analysis"],
+        required: ["isFood", "name", "calories", "analysis"],
       },
     },
   }));
 
     try {
       const text = response.text;
-      return JSON.parse(text || '{}');
+      const parsed = JSON.parse(text || '{}');
+      return {
+        isFood: typeof parsed.isFood === 'boolean' ? parsed.isFood : true,
+        name: parsed.name || "Scanned Item",
+        calories: typeof parsed.calories === 'number' ? parsed.calories : 0,
+        analysis: parsed.analysis || "",
+      };
     } catch (e) {
       console.error("Failed to parse AI food scan response", e);
       return null;
