@@ -3,6 +3,7 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
+  signInWithCredential,
   signInAnonymously, 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -85,7 +86,9 @@ testConnection();
 
 export { 
   signInWithPopup, 
-  signInAnonymously,
+  signInWithCredential,
+  GoogleAuthProvider,
+  signInAnonymously, 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,

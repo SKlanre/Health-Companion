@@ -40,6 +40,8 @@ import {
   db, 
   googleProvider, 
   signInWithPopup, 
+  signInWithCredential,
+  GoogleAuthProvider,
   signInAnonymously,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -368,17 +370,147 @@ const App: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  /**
+   * Detects if running inside Median.co (formerly GoNative) Android app wrapper
+   */
+  const isMedianAndroidApp = (): boolean => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const win = window as any;
+    const isMedianUA = /median|gonative/i.test(ua);
+    const hasMedianObj = Boolean(win.median || win.gonative || win.median_library || win.MedianAndroid);
+    return isMedianUA || hasMedianObj;
+  };
+
+  /**
+   * Triggers Median's native Google Sign-In JS bridge using median.socialLogin.google.login
+   * and returns the Google ID token.
+   */
+  const performMedianGoogleSignIn = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+
+      const timeout = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        reject(new Error("Native Google Sign-In timed out. Please try again or use Email & Password."));
+      }, 45000);
+
+      const handleResult = (response: any) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+
+        if (!response) {
+          reject(new Error("No response received from native Google Sign-In."));
+          return;
+        }
+        if (response.error) {
+          const errText = typeof response.error === 'string' ? response.error : "Native Google Sign-In failed or was canceled.";
+          reject(new Error(errText));
+          return;
+        }
+
+        // According to Median documentation, response contains idToken
+        const idToken = response.idToken || response.id_token;
+        if (idToken && typeof idToken === 'string') {
+          resolve(idToken);
+        } else {
+          console.error("Median Google Sign-In response payload:", response);
+          reject(new Error("Google ID token was not returned by native Google Sign-In."));
+        }
+      };
+
+      const win = window as any;
+      // Make callback globally accessible on window object for Median JS Bridge
+      win.googleLoginCallback = handleResult;
+      win._medianGoogleSignInCallback = handleResult;
+
+      // Primary documented API: median.socialLogin.google.login({ callback: googleLoginCallback })
+      const medianSocialGoogle = win.median?.socialLogin?.google || win.gonative?.socialLogin?.google;
+      const medianGoogle = win.median?.google || win.gonative?.google;
+
+      if (medianSocialGoogle && typeof medianSocialGoogle.login === 'function') {
+        try {
+          medianSocialGoogle.login({ callback: win.googleLoginCallback });
+        } catch (err) {
+          try {
+            medianSocialGoogle.login(handleResult);
+          } catch (e) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
+            reject(err);
+          }
+        }
+      } else if (medianGoogle && typeof medianGoogle.login === 'function') {
+        try {
+          medianGoogle.login({ callback: win.googleLoginCallback });
+        } catch (err) {
+          try {
+            medianGoogle.login(handleResult);
+          } catch (e) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
+            reject(err);
+          }
+        }
+      } else if (typeof win.median_google_login === 'function') {
+        win.median_google_login(handleResult);
+      } else if (typeof win.gonative_google_login === 'function') {
+        win.gonative_google_login(handleResult);
+      } else {
+        try {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = 'median://socialLogin/google/login?callback=googleLoginCallback';
+          document.body.appendChild(iframe);
+          setTimeout(() => {
+            if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+          }, 1000);
+        } catch (err) {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
+          reject(new Error("Median Google Sign-In bridge is unavailable in this build."));
+        }
+      }
+    });
+  };
+
   const handleLogin = async () => {
     setLoginLoading(true);
     setLoginError(null);
 
-    // Timeout guard so the UI never hangs indefinitely in WebViews or APK wrappers
+    // 1. Median.co Android App Native Google Sign-In Flow
+    if (isMedianAndroidApp()) {
+      try {
+        const idToken = await performMedianGoogleSignIn();
+        const credential = GoogleAuthProvider.credential(idToken);
+        await signInWithCredential(auth, credential);
+        showNotification("Successfully signed in with Google!", 'success');
+      } catch (error: any) {
+        console.error("Median Google Login failed", error);
+        let errMsg = error?.message || "Google Sign-In failed.";
+        if (errMsg.includes("unavailable") || errMsg.includes("bridge")) {
+          errMsg = "Native Google Sign-In bridge is currently unavailable. Please sign in with Email & Password or Guest Mode above.";
+        }
+        setLoginError(errMsg);
+        showNotification(errMsg, 'error');
+      } finally {
+        setLoginLoading(false);
+      }
+      return;
+    }
+
+    // 2. Normal Web Browser Flow (signInWithPopup)
     const timeoutId = setTimeout(() => {
       setLoginLoading(false);
-      const errMsg = "Google Sign-In popup timed out. Google blocks web popups inside Android APK WebViews. Please sign in with Email & Password or Guest Mode above!";
+      const errMsg = "Google Sign-In popup timed out. Please check your browser popup settings or use Email & Password / Guest Mode.";
       setLoginError(errMsg);
       showNotification(errMsg, 'error');
-    }, 10000);
+    }, 15000);
 
     try {
       await signInWithPopup(auth, googleProvider);
@@ -390,7 +522,7 @@ const App: React.FC = () => {
       if (error.code === 'auth/unauthorized-domain') {
         errMsg = `Google Sign-In is not allowed on this domain (${window.location.hostname}) until added to Firebase Authorized Domains. Use Email & Password or Guest Sign-In below!`;
       } else if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
-        errMsg = "Sign-in popup was blocked or not supported in this app environment / APK. Please use Email & Password or Guest Sign-In above!";
+        errMsg = "Sign-in popup was blocked or not supported in this browser. Please use Email & Password or Guest Sign-In above!";
       } else if (error.code === 'auth/popup-closed-by-user') {
         errMsg = "Sign-in popup was closed before completing.";
       }
