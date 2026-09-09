@@ -18,6 +18,7 @@ import { processVoiceMeal, analyzeBuffet, scanFoodImage } from '../services/gemi
 import { DailyStats, UserProfile, FoodLogEntry } from '../types';
 import ReactMarkdown from 'react-markdown';
 import { processImageForScanning } from '../lib/imageProcessor';
+import { BrandLogo } from './BrandLogo';
 
 interface Props {
   isOpen: boolean;
@@ -281,14 +282,12 @@ const FoodAssistant: React.FC<Props> = ({
         </button>
 
         <div className="flex justify-between items-start mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30">
-              <Sparkles className="w-6 h-6 text-white" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-1.5">
+              <BrandLogo className="w-20 h-auto !py-1 !px-2.5 !rounded-xl" withBacking={true} alt="MOZO" />
+              <span className="text-xl font-black text-slate-900 dark:text-white leading-none">Scanner</span>
             </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-none">FitAI Scanner</h2>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">AI Food & Calorie Tracker</p>
-            </div>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">AI Food & Calorie Tracker</p>
           </div>
           <div className={`flex flex-col items-end gap-1 p-2.5 rounded-2xl border shadow-sm ${
             remainingScans === 0 

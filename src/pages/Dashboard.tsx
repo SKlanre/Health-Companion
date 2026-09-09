@@ -23,6 +23,7 @@ import { suggestWorkout, suggestDailyMeals, suggestMeal, generateGoalSteps } fro
 import { auth, db, doc, setDoc } from '../firebase';
 import CircularProgress from '../components/CircularProgress';
 import ReactMarkdown from 'react-markdown';
+import { BrandLogo } from '../components/BrandLogo';
 import FoodAssistant from '../components/FoodAssistant';
 import WorkoutFocus from '../components/WorkoutFocus';
 
@@ -381,30 +382,61 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
         incrementAiUsage={incrementAiUsage}
       />
       
-      {/* Header with Streak */}
-      <div className="flex justify-between items-center mb-2">
-        <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 px-4 py-2 rounded-2xl border border-amber-100 dark:border-amber-900/30 shadow-sm">
-          <Zap className="w-5 h-5 text-amber-500 fill-amber-500" />
-          <span className="text-lg font-black text-amber-700 dark:text-amber-400">{userProfile?.streak || 0} Day Streak</span>
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] leading-none">
+      {/* Header with Streak & MOZO Status */}
+      <div className="mb-2">
+        <div className="flex justify-between items-center px-1 mb-2">
+          <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+            Daily Overview
+          </span>
+          <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-          </div>
-          <div className={`flex flex-col items-end gap-1 p-2 rounded-2xl border ${
-            remainingScans === 0 
-              ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/30' 
-              : 'bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/30'
-          }`}>
-            <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">FitAI Status</span>
-            <div className="flex items-center gap-2">
-              <span className={`text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded-md ${
-                userProfile?.tier === 'premium' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40'
-              }`}>
-                {userProfile?.tier === 'premium' ? 'Pro Member' : 'Free Tier'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* Streak Card */}
+          <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/40 p-3.5 rounded-2xl shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                Streak
               </span>
-              <span className={`text-[11px] font-black ${remainingScans === 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-200'}`}>
-                {remainingScans}/{maxDailyScans} Scans
+              <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center">
+                <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-amber-900 dark:text-amber-100">
+                {userProfile?.streak || 0}
+              </span>
+              <span className="text-xs font-bold text-amber-700/80 dark:text-amber-400/80">
+                {userProfile?.streak === 1 ? 'day' : 'days'}
+              </span>
+            </div>
+          </div>
+
+          {/* MOZO Status Card */}
+          <div className={`p-3.5 rounded-2xl border shadow-sm flex flex-col justify-between ${
+            remainingScans === 0 
+              ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-100 dark:border-rose-900/40' 
+              : 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-900/40'
+          }`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <BrandLogo className="w-14 h-auto !py-0.5 !px-2 !rounded-lg" withBacking={true} alt="MOZO" />
+                <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">Status</span>
+              </div>
+              <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${
+                userProfile?.tier === 'premium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300'
+              }`}>
+                {userProfile?.tier === 'premium' ? 'Pro' : 'Free'}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className={`text-xl font-black ${remainingScans === 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                {remainingScans}<span className="text-xs font-normal text-slate-400 dark:text-slate-500">/{maxDailyScans}</span>
+              </span>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                Scans
               </span>
             </div>
           </div>

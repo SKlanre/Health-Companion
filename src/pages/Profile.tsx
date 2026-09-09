@@ -4,6 +4,7 @@ import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, 
 import { UserProfile, DailyHistoryEntry, DailyStats } from '../types';
 import { auth, db, doc, setDoc, handleFirestoreError, OperationType } from '../firebase';
 import EditProfile from '../components/EditProfile';
+import { BrandLogo } from '../components/BrandLogo';
 
 interface ProfileProps {
   profile: UserProfile | null;
@@ -266,6 +267,11 @@ const Profile: React.FC<ProfileProps> = ({
           <LogOut className="w-5 h-5" /> Sign Out
         </button>
       )}
+
+      <div className="flex flex-col items-center justify-center pt-8 pb-4 text-center">
+        <BrandLogo className="w-28 h-auto mb-2" withBacking={true} alt="MOZO" />
+        <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">AI Fitness & Nutrition • v2.4.0</p>
+      </div>
 
       <EditProfile 
         profile={profile}

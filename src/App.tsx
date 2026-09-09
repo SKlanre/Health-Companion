@@ -34,16 +34,13 @@ import Community from './pages/Community';
 import Progress from './pages/Progress';
 import Profile from './pages/Profile';
 import Onboarding from './components/Onboarding';
+import { BrandLogo } from './components/BrandLogo';
 import { Tab, DailyStats, FoodLogEntry, WorkoutEntry, UserProfile, DailyHistoryEntry } from './types';
 import { scanFoodImage } from './services/geminiService';
 import { processImageForScanning } from './lib/imageProcessor';
 import { 
   auth, 
   db, 
-  googleProvider, 
-  signInWithPopup, 
-  signInWithCredential,
-  GoogleAuthProvider,
   signInAnonymously,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -374,170 +371,6 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-
-  /**
-   * Detects if running inside Median.co (formerly GoNative) Android app wrapper
-   */
-  const isMedianAndroidApp = (): boolean => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    const win = window as any;
-    const isMedianUA = /median|gonative/i.test(ua);
-    const hasMedianObj = Boolean(win.median || win.gonative || win.median_library || win.MedianAndroid);
-    return isMedianUA || hasMedianObj;
-  };
-
-  /**
-   * Triggers Median's native Google Sign-In JS bridge using median.socialLogin.google.login
-   * and returns the Google ID token.
-   */
-  const performMedianGoogleSignIn = (): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      let resolved = false;
-
-      const timeout = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        reject(new Error("Native Google Sign-In timed out. Please try again or use Email & Password."));
-      }, 45000);
-
-      const handleResult = (response: any) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
-
-        if (!response) {
-          reject(new Error("No response received from native Google Sign-In."));
-          return;
-        }
-        if (response.error) {
-          const errText = typeof response.error === 'string' ? response.error : "Native Google Sign-In failed or was canceled.";
-          reject(new Error(errText));
-          return;
-        }
-
-        // According to Median documentation, response contains idToken
-        const idToken = response.idToken || response.id_token;
-        if (idToken && typeof idToken === 'string') {
-          resolve(idToken);
-        } else {
-          console.error("Median Google Sign-In response payload:", response);
-          reject(new Error("Google ID token was not returned by native Google Sign-In."));
-        }
-      };
-
-      const win = window as any;
-      // Make callback globally accessible on window object for Median JS Bridge
-      win.googleLoginCallback = handleResult;
-      win._medianGoogleSignInCallback = handleResult;
-
-      // Primary documented API: median.socialLogin.google.login({ callback: googleLoginCallback })
-      const medianSocialGoogle = win.median?.socialLogin?.google || win.gonative?.socialLogin?.google;
-      const medianGoogle = win.median?.google || win.gonative?.google;
-
-      if (medianSocialGoogle && typeof medianSocialGoogle.login === 'function') {
-        try {
-          medianSocialGoogle.login({ callback: win.googleLoginCallback });
-        } catch (err) {
-          try {
-            medianSocialGoogle.login(handleResult);
-          } catch (e) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
-            reject(err);
-          }
-        }
-      } else if (medianGoogle && typeof medianGoogle.login === 'function') {
-        try {
-          medianGoogle.login({ callback: win.googleLoginCallback });
-        } catch (err) {
-          try {
-            medianGoogle.login(handleResult);
-          } catch (e) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
-            reject(err);
-          }
-        }
-      } else if (typeof win.median_google_login === 'function') {
-        win.median_google_login(handleResult);
-      } else if (typeof win.gonative_google_login === 'function') {
-        win.gonative_google_login(handleResult);
-      } else {
-        try {
-          const iframe = document.createElement('iframe');
-          iframe.style.display = 'none';
-          iframe.src = 'median://socialLogin/google/login?callback=googleLoginCallback';
-          document.body.appendChild(iframe);
-          setTimeout(() => {
-            if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-          }, 1000);
-        } catch (err) {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeout);
-          reject(new Error("Median Google Sign-In bridge is unavailable in this build."));
-        }
-      }
-    });
-  };
-
-  const handleLogin = async () => {
-    setLoginLoading(true);
-    setLoginError(null);
-
-    // 1. Median.co Android App Native Google Sign-In Flow
-    if (isMedianAndroidApp()) {
-      try {
-        const idToken = await performMedianGoogleSignIn();
-        const credential = GoogleAuthProvider.credential(idToken);
-        await signInWithCredential(auth, credential);
-        showNotification("Successfully signed in with Google!", 'success');
-      } catch (error: any) {
-        console.error("Median Google Login failed", error);
-        let errMsg = error?.message || "Google Sign-In failed.";
-        if (errMsg.includes("unavailable") || errMsg.includes("bridge")) {
-          errMsg = "Native Google Sign-In bridge is currently unavailable. Please sign in with Email & Password or Guest Mode above.";
-        }
-        setLoginError(errMsg);
-        showNotification(errMsg, 'error');
-      } finally {
-        setLoginLoading(false);
-      }
-      return;
-    }
-
-    // 2. Normal Web Browser Flow (signInWithPopup)
-    const timeoutId = setTimeout(() => {
-      setLoginLoading(false);
-      const errMsg = "Google Sign-In popup timed out. Please check your browser popup settings or use Email & Password / Guest Mode.";
-      setLoginError(errMsg);
-      showNotification(errMsg, 'error');
-    }, 15000);
-
-    try {
-      await signInWithPopup(auth, googleProvider);
-      clearTimeout(timeoutId);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      console.error("Login failed", error);
-      let errMsg = error.message || "Failed to sign in.";
-      if (error.code === 'auth/unauthorized-domain') {
-        errMsg = `Google Sign-In is not allowed on this domain (${window.location.hostname}) until added to Firebase Authorized Domains. Use Email & Password or Guest Sign-In below!`;
-      } else if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
-        errMsg = "Sign-in popup was blocked or not supported in this browser. Please use Email & Password or Guest Sign-In above!";
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        errMsg = "Sign-in popup was closed before completing.";
-      }
-      setLoginError(errMsg);
-      showNotification(errMsg, 'error');
-    } finally {
-      clearTimeout(timeoutId);
-      setLoginLoading(false);
-    }
-  };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1218,8 +1051,9 @@ const App: React.FC = () => {
   if (!isAuthReady) {
     return (
       <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 transition-colors duration-300">
-        <div className="w-16 h-16 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs">Initializing FitAI...</p>
+        <BrandLogo className="w-48 max-w-[200px] mb-5" />
+        <div className="w-8 h-8 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs">Initializing MOZO...</p>
       </div>
     );
   }
@@ -1227,7 +1061,8 @@ const App: React.FC = () => {
   if (user && !isProfileLoaded) {
     return (
       <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 transition-colors duration-300">
-        <div className="w-16 h-16 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+        <BrandLogo className="w-48 max-w-[200px] mb-5" />
+        <div className="w-8 h-8 border-4 border-indigo-100 dark:border-slate-800 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
         <p className="text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs">Loading Profile...</p>
       </div>
     );
@@ -1240,12 +1075,10 @@ const App: React.FC = () => {
         <div className="absolute -top-24 -left-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="w-16 h-16 rounded-[24px] bg-gradient-to-tr from-indigo-500 via-indigo-600 to-purple-500 flex items-center justify-center text-white font-black text-2xl shadow-xl shadow-indigo-500/20 mb-4 border-2 border-white/20">
-          A
-        </div>
-        <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Welcome to FitAI</h1>
+        <BrandLogo className="w-52 max-w-[210px] mb-4" alt="MOZO" />
+        <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400 mb-2">AI Fitness & Nutrition</p>
         <p className="text-gray-500 dark:text-slate-400 mb-6 leading-relaxed text-xs max-w-xs">
-          Your AI fitness companion. Sign in or create an account to start tracking meals and workouts.
+          Sign in or create an account to start tracking meals, scan calories, and generate smart workouts.
         </p>
 
         {/* Login Error Banner */}
@@ -1373,19 +1206,6 @@ const App: React.FC = () => {
         {/* Alternative Actions */}
         <div className="w-full space-y-2 mt-2">
           <button 
-            onClick={handleLogin}
-            disabled={loginLoading}
-            className="w-full p-3.5 bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-100 border border-gray-200 dark:border-slate-800 rounded-2xl flex items-center justify-center gap-3 font-bold hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-all shadow-sm active:scale-95 disabled:opacity-50 text-sm"
-          >
-            {loginLoading ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <LogIn className="w-4 h-4 text-indigo-500" />
-            )}
-            <span>Sign in with Google</span>
-          </button>
-
-          <button 
             onClick={handleGuestLogin}
             disabled={loginLoading}
             className="w-full p-3.5 bg-gray-100 dark:bg-slate-800/50 text-gray-700 dark:text-slate-300 rounded-2xl flex items-center justify-center gap-3 font-semibold hover:bg-gray-200/80 dark:hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 text-xs"
@@ -1399,8 +1219,8 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-4 leading-normal">
-          Using as a <strong>Mobile APK / App</strong> or custom domain? Use <strong>Email Sign In</strong> or <strong>Guest Mode</strong> for instant access.
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-4 leading-normal text-center">
+          Sign in with your email or explore instantly with <strong>Guest Mode</strong>.
         </p>
 
         {/* Notification Toast on Login Screen */}
@@ -1463,8 +1283,10 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="p-6 flex justify-between items-center bg-transparent z-10">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 border-2 border-white dark:border-slate-800 shrink-0">
-            {userProfile?.name?.charAt(0) || 'G'}
+          <div className="relative">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-100 dark:shadow-indigo-900/20 border-2 border-white dark:border-slate-800 shrink-0">
+              {userProfile?.name?.charAt(0) || 'G'}
+            </div>
           </div>
           <div>
             <div className="flex items-center gap-1.5 mb-1">

@@ -396,61 +396,6 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
         </div>
       </div>
 
-      {/* Full Body Workout: Quick Direct Home or Gym Selection */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center shrink-0">
-            <Zap className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-black text-slate-900 dark:text-white">
-              Full Body Workout
-            </h3>
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-              Select workout location:
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleSelectArea('Full Body', false, 'home')}
-            disabled={isGenerating}
-            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 ${
-              environment === 'home'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            {isGenerating && selectedArea === 'Full Body_home' ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Home className="w-3.5 h-3.5" />
-            )}
-            Home
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectArea('Full Body', false, 'gym')}
-            disabled={isGenerating}
-            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 ${
-              environment === 'gym'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            {isGenerating && selectedArea === 'Full Body_gym' ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Dumbbell className="w-3.5 h-3.5" />
-            )}
-            Gym
-          </button>
-        </div>
-      </div>
-
       {/* AI Recommendation Card (Daily Focus) */}
       <div 
         className={`bg-indigo-50 dark:bg-indigo-950/20 rounded-[32px] p-6 border border-indigo-100 dark:border-indigo-900/30 relative overflow-hidden transition-all ${isRecommending ? 'animate-pulse' : ''}`}

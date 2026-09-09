@@ -38,6 +38,7 @@
     "@capacitor/cli": "^8.3.4",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "potrace": "^2.1.8",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
