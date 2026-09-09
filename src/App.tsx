@@ -36,6 +36,7 @@ import Profile from './pages/Profile';
 import Onboarding from './components/Onboarding';
 import { Tab, DailyStats, FoodLogEntry, WorkoutEntry, UserProfile, DailyHistoryEntry } from './types';
 import { scanFoodImage } from './services/geminiService';
+import { processImageForScanning } from './lib/imageProcessor';
 import { 
   auth, 
   db, 
@@ -917,78 +918,57 @@ const App: React.FC = () => {
     // Check & Increment (atomically-ish for the session)
     const canScan = await incrementAiUsage();
     if (!canScan) {
-      event.target.value = '';
+      if (event.target) event.target.value = '';
       return;
     }
 
     setIsScanning(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const img = new Image();
-      img.src = reader.result as string;
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 512;
-        const MAX_HEIGHT = 512;
-        let width = img.width;
-        let height = img.height;
+    try {
+      // Process image safely for iOS Safari / iPhone (HEIC conversion, dimension downscaling, memory guard)
+      const { base64Data } = await processImageForScanning(file, 640);
+      setCurrentBase64(base64Data);
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
+      try {
+        const result = await scanFoodImage(base64Data, scanMode);
+        if (result) {
+          setPendingFood({
+            isFood: result.isFood,
+            name: result.name || "Scanned Meal",
+            calories: result.calories ?? 0,
+            analysis: result.analysis || ""
+          });
+          if ((result as any).wasFallback) {
+            showNotification("AI is experiencing high traffic — initial estimate provided. Tap to adjust calories anytime!", "info");
           }
         } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
+          setPendingFood({
+            isFood: true,
+            name: "Meal Photo Logged",
+            calories: 400,
+            analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
+          });
+          showNotification("Estimated values loaded. You can adjust name and calories directly.", "info");
         }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-        setCurrentBase64(base64Data);
-          try {
-            const result = await scanFoodImage(base64Data, scanMode);
-            if (result) {
-              setPendingFood({
-                isFood: result.isFood,
-                name: result.name || "Scanned Meal",
-                calories: result.calories ?? 0,
-                analysis: result.analysis || ""
-              });
-              if ((result as any).wasFallback) {
-                showNotification("AI is experiencing high traffic — initial estimate provided. Tap to adjust calories anytime!", "info");
-              }
-            } else {
-              setPendingFood({
-                isFood: true,
-                name: "Meal Photo Logged",
-                calories: 400,
-                analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
-              });
-              showNotification("Estimated values loaded. You can adjust name and calories directly.", "info");
-            }
-          } catch (err: any) {
-            console.error("Scanning error:", err);
-            setPendingFood({
-              isFood: true,
-              name: "Meal Photo Logged",
-              calories: 400,
-              analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
-            });
-            showNotification("High AI traffic: Initial estimate provided. Tap to adjust details!", "info");
-          } finally {
-            setIsScanning(false);
-          }
-      };
-    };
-    reader.readAsDataURL(file);
-    event.target.value = '';
+      } catch (err: any) {
+        console.error("Scanning error:", err);
+        setPendingFood({
+          isFood: true,
+          name: "Meal Photo Logged",
+          calories: 400,
+          analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
+        });
+        showNotification("Initial estimate provided. Tap to adjust meal details!", "info");
+      }
+    } catch (procErr: any) {
+      console.error("Image processing error on iPhone/mobile:", procErr);
+      showNotification(procErr?.message || "Failed to process photo from device. Please check permissions or try uploading from photo gallery.", "error");
+    } finally {
+      setIsScanning(false);
+      // Safely clear input value AFTER processing has completed so iOS WebKit doesn't abort file read
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
   };
 
   const handleRefineScan = async () => {
@@ -1175,7 +1155,7 @@ const App: React.FC = () => {
           foodLog={foodLog} 
           onUpdateStat={handleUpdateStat} 
           onLogMeal={handleAddFood}
-          onTriggerScan={() => triggerScan('deep', 'camera')} 
+          onTriggerScan={() => setShowScanPicker(true)} 
           maxDailyScans={MAX_DAILY_SCANS}
           incrementAiUsage={incrementAiUsage}
           onUpgrade={handleUpgrade}
@@ -1433,19 +1413,26 @@ const App: React.FC = () => {
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col relative pb-20 overflow-hidden shadow-xl transition-colors duration-300">
+      {/* Backup file inputs for programmatic triggers */}
       <input 
+        id="app-camera-scanner-input"
         ref={cameraInputRef}
         type="file" 
         accept="image/*" 
         capture="environment"
-        className="hidden" 
+        className="opacity-0 absolute -z-50 w-px h-px pointer-events-auto overflow-hidden" 
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={handleImageUpload}
       />
       <input 
+        id="app-gallery-scanner-input"
         ref={fileInputRef}
         type="file" 
         accept="image/*" 
-        className="hidden" 
+        className="opacity-0 absolute -z-50 w-px h-px pointer-events-auto overflow-hidden" 
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={handleImageUpload}
       />
       
@@ -1747,45 +1734,74 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3.5 mb-4">
+            <div className="grid grid-cols-2 gap-3.5 mb-3.5">
               {/* Option 1: Direct Camera */}
-              <button
-                onClick={() => {
-                  setShowScanPicker(false);
-                  triggerScan('deep', 'camera');
-                }}
-                className="p-5 bg-gradient-to-br from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-3xl flex flex-col items-center justify-center gap-3 font-bold shadow-xl shadow-indigo-600/25 active:scale-95 transition-all group"
+              <label
+                className="relative p-5 bg-gradient-to-br from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-3xl flex flex-col items-center justify-center gap-3 font-bold shadow-xl shadow-indigo-600/25 active:scale-95 transition-all group cursor-pointer select-none overflow-hidden"
               >
-                <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform shadow-inner">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                  onChange={(e) => {
+                    setScanMode('deep');
+                    setShowScanPicker(false);
+                    handleImageUpload(e);
+                  }}
+                />
+                <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform shadow-inner pointer-events-none">
                   <Camera className="w-7 h-7 text-white" />
                 </div>
-                <div className="text-center">
+                <div className="text-center pointer-events-none">
                   <span className="text-sm font-black block">Take Photo</span>
                   <span className="text-[11px] text-indigo-100/90 font-medium">Use Camera</span>
                 </div>
-              </button>
+              </label>
 
               {/* Option 2: Gallery Upload */}
-              <button
-                onClick={() => {
-                  setShowScanPicker(false);
-                  triggerScan('deep', 'gallery');
-                }}
-                className="p-5 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 rounded-3xl flex flex-col items-center justify-center gap-3 font-bold border border-slate-200/80 dark:border-slate-700 shadow-sm active:scale-95 transition-all group"
+              <label
+                className="relative p-5 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 rounded-3xl flex flex-col items-center justify-center gap-3 font-bold border border-slate-200/80 dark:border-slate-700 shadow-sm active:scale-95 transition-all group cursor-pointer select-none overflow-hidden"
               >
-                <div className="w-14 h-14 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform shadow-inner">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                  onChange={(e) => {
+                    setScanMode('deep');
+                    setShowScanPicker(false);
+                    handleImageUpload(e);
+                  }}
+                />
+                <div className="w-14 h-14 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform shadow-inner pointer-events-none">
                   <ImageIcon className="w-7 h-7" />
                 </div>
-                <div className="text-center">
+                <div className="text-center pointer-events-none">
                   <span className="text-sm font-black block">Upload Photo</span>
                   <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">From Gallery</span>
                 </div>
-              </button>
+              </label>
             </div>
+
+            {/* Option 3: All-File / iCloud Picker */}
+            <label className="relative w-full py-3.5 px-4 mb-4 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-2xl flex items-center justify-center gap-2.5 font-bold border border-indigo-100/80 dark:border-indigo-900/50 cursor-pointer overflow-hidden active:scale-98 transition-all">
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                onChange={(e) => {
+                  setScanMode('deep');
+                  setShowScanPicker(false);
+                  handleImageUpload(e);
+                }}
+              />
+              <Sparkles className="w-4 h-4 text-indigo-500 pointer-events-none" />
+              <span className="text-xs font-black pointer-events-none">Or choose any photo file / iCloud</span>
+            </label>
 
             <div className="bg-indigo-50/50 dark:bg-slate-800/40 rounded-2xl p-3 text-center border border-indigo-100/50 dark:border-slate-800">
               <p className="text-[11px] text-indigo-950/70 dark:text-slate-400 font-medium leading-tight">
-                Snap or upload cooked dishes, snacks, buffet plates, drinks or packaged foods for instant AI analysis.
+                iPhone & Android supported (HEIC and JPEG). If camera doesn&apos;t open, select &ldquo;Upload Photo&rdquo; or check Safari camera permissions.
               </p>
             </div>
           </div>

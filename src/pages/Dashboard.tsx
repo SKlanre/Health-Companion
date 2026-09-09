@@ -677,6 +677,20 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
                   </button>
 
                   <button 
+                    onClick={() => { setManualModalOpen(false); onTriggerScan(); }}
+                    className="w-full p-6 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-3xl text-white flex items-center gap-4 group transition-all active:scale-[0.98] shadow-lg shadow-emerald-100 dark:shadow-emerald-900/20"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
+                      <Camera className="w-6 h-6" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-black text-lg">Scan Meal with Camera</p>
+                      <p className="text-white/70 text-xs font-bold uppercase tracking-widest">Instant AI Food Recognition</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 ml-auto text-white/50 group-hover:text-white transition-colors" />
+                  </button>
+
+                  <button 
                     onClick={() => setEntryMode('manual')}
                     className="w-full p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl text-slate-700 dark:text-slate-200 flex items-center gap-4 transition-all active:scale-[0.98] border border-slate-100 dark:border-slate-700"
                   >

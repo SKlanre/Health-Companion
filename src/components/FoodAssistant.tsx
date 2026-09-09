@@ -11,11 +11,13 @@ import {
   Image as ImageIcon,
   RotateCcw,
   Check,
-  AlertCircle
+  AlertCircle,
+  Video
 } from 'lucide-react';
 import { processVoiceMeal, analyzeBuffet, scanFoodImage } from '../services/geminiService';
 import { DailyStats, UserProfile, FoodLogEntry } from '../types';
 import ReactMarkdown from 'react-markdown';
+import { processImageForScanning } from '../lib/imageProcessor';
 
 interface Props {
   isOpen: boolean;
@@ -64,8 +66,6 @@ const FoodAssistant: React.FC<Props> = ({
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -82,11 +82,9 @@ const FoodAssistant: React.FC<Props> = ({
       setActiveTab('buffet');
     }
 
-    if (activeTab === 'buffet' && !selectedImagePreview) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
+    // On iOS Safari, we do NOT auto-start camera in useEffect without a user gesture.
+    // Instead, the user can use 'Snap Mobile Photo' directly or tap 'Start Live Viewfinder'.
+    stopCamera();
   }, [isOpen, activeTab]);
 
   const resetPhotoState = () => {
@@ -130,46 +128,28 @@ const FoodAssistant: React.FC<Props> = ({
     setCameraActive(false);
   };
 
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const img = new Image();
-      img.src = reader.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_DIM = 640;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > MAX_DIM) {
-            height *= MAX_DIM / width;
-            width = MAX_DIM;
-          }
-        } else {
-          if (height > MAX_DIM) {
-            width *= MAX_DIM / height;
-            height = MAX_DIM;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        const base64 = dataUrl.split(',')[1];
-        
-        setSelectedImagePreview(dataUrl);
-        setSelectedImageBase64(base64);
-        setResult(null);
-        setError(null);
-        stopCamera();
-      };
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { base64Data, previewDataUrl } = await processImageForScanning(file, 640);
+      setSelectedImagePreview(previewDataUrl);
+      setSelectedImageBase64(base64Data);
+      setResult(null);
+      setError(null);
+      stopCamera();
+    } catch (err: any) {
+      console.error("Mobile photo processing error in FoodAssistant:", err);
+      setError(err?.message || "Failed to load photo from device. Please check permissions or try again.");
+    } finally {
+      setIsLoading(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
   };
 
   const handleProcessText = async () => {
@@ -295,23 +275,6 @@ const FoodAssistant: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[200] flex items-end sm:items-center justify-center animate-in fade-in duration-300">
-      {/* Hidden Mobile Inputs */}
-      <input 
-        ref={cameraInputRef}
-        type="file" 
-        accept="image/*" 
-        capture="environment" 
-        className="hidden"
-        onChange={handleFileSelected}
-      />
-      <input 
-        ref={galleryInputRef}
-        type="file" 
-        accept="image/*" 
-        className="hidden"
-        onChange={handleFileSelected}
-      />
-
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg sm:rounded-[40px] rounded-t-[40px] p-6 sm:p-8 shadow-2xl relative flex flex-col max-h-[92vh] overflow-hidden">
         <button onClick={onClose} className="absolute top-5 right-5 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors z-10">
           <X className="w-6 h-6 text-slate-400" />
@@ -458,21 +421,32 @@ const FoodAssistant: React.FC<Props> = ({
                 <div className="space-y-4">
                   {/* Quick Mobile Action Buttons */}
                   <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => cameraInputRef.current?.click()}
-                      className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl flex flex-col items-center justify-center gap-2 font-bold shadow-md shadow-indigo-600/20 active:scale-95 transition-all text-xs"
+                    <label 
+                      className="relative p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl flex flex-col items-center justify-center gap-2 font-bold shadow-md shadow-indigo-600/20 active:scale-95 transition-all text-xs cursor-pointer select-none text-center overflow-hidden"
                     >
-                      <Camera className="w-6 h-6" />
-                      <span>Snap Mobile Photo</span>
-                    </button>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        capture="environment" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                        onChange={handleFileSelected}
+                      />
+                      <Camera className="w-6 h-6 pointer-events-none" />
+                      <span className="pointer-events-none">Snap Mobile Photo</span>
+                    </label>
 
-                    <button 
-                      onClick={() => galleryInputRef.current?.click()}
-                      className="p-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl flex flex-col items-center justify-center gap-2 font-bold shadow-sm active:scale-95 transition-all text-xs"
+                    <label 
+                      className="relative p-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl flex flex-col items-center justify-center gap-2 font-bold shadow-sm active:scale-95 transition-all text-xs cursor-pointer select-none text-center overflow-hidden"
                     >
-                      <ImageIcon className="w-6 h-6 text-purple-500" />
-                      <span>Choose from Gallery</span>
-                    </button>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                        onChange={handleFileSelected}
+                      />
+                      <ImageIcon className="w-6 h-6 text-purple-500 pointer-events-none" />
+                      <span className="pointer-events-none">Choose from Gallery</span>
+                    </label>
                   </div>
 
                   {/* Live Viewfinder Stream */}
@@ -481,15 +455,24 @@ const FoodAssistant: React.FC<Props> = ({
                       ref={videoRef} 
                       autoPlay 
                       playsInline 
+                      muted
                       className={`w-full h-full object-cover ${!cameraActive ? 'hidden' : ''}`}
                     />
 
                     {!cameraActive && (
-                      <div className="p-6 text-center text-slate-400 space-y-2">
-                        <Camera className="w-10 h-10 mx-auto text-slate-500 mb-2 opacity-60" />
+                      <div className="p-6 text-center text-slate-400 space-y-3">
+                        <Camera className="w-9 h-9 mx-auto text-slate-500 mb-1 opacity-60" />
                         <p className="text-xs font-semibold text-slate-300">
-                          {cameraError || "Tap 'Snap Mobile Photo' above to use your phone camera instantly!"}
+                          {cameraError || "Tap 'Snap Mobile Photo' to use your phone camera, or choose from gallery!"}
                         </p>
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all inline-flex items-center gap-2 active:scale-95"
+                        >
+                          <Video className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Start Live Viewfinder</span>
+                        </button>
                       </div>
                     )}
 
