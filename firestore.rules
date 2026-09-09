@@ -80,6 +80,9 @@ service cloud.firestore {
              (!('lastAiTipTimestamp' in data) || (data.lastAiTipTimestamp is string)) &&
              (!('preloadedMeals' in data) || (data.preloadedMeals is map)) &&
              (!('preloadedWorkout' in data) || (data.preloadedWorkout is string && data.preloadedWorkout.size() < 10000)) &&
+             (!('preloadedWorkouts' in data) || (data.preloadedWorkouts is map)) &&
+             (!('lastWorkoutPreloadTimestamp' in data) || (data.lastWorkoutPreloadTimestamp is string)) &&
+             (!('preloadedFocusAreaRecommendation' in data) || (data.preloadedFocusAreaRecommendation is map || data.preloadedFocusAreaRecommendation is string)) &&
              (!('lastMealPreloadTimestamp' in data) || (data.lastMealPreloadTimestamp is string)) &&
              (!('darkMode' in data) || (data.darkMode is bool)) &&
              (!('targetWeight' in data) || (data.targetWeight is number && data.targetWeight > 0)) &&

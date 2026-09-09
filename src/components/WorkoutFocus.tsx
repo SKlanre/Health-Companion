@@ -1,27 +1,29 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Dumbbell, 
   Sparkles, 
-  ChevronRight, 
   Target, 
   RefreshCw, 
   Zap, 
-  X,
-  Heart,
-  User,
-  Activity
+  Heart, 
+  User, 
+  Activity,
+  Home,
+  Check,
+  Eye,
+  CalendarCheck,
+  Layers
 } from 'lucide-react';
-import { UserProfile, DailyStats, FoodLogEntry } from '../types';
+import { UserProfile, DailyStats, FoodLogEntry, WorkoutEnvironment } from '../types';
 import { recommendFocusArea, suggestWorkout } from '../services/geminiService';
 import { auth, db, doc, setDoc } from '../firebase';
-import ReactMarkdown from 'react-markdown';
 
 interface Props {
   userProfile: UserProfile | null;
   stats: DailyStats;
   foodLog: FoodLogEntry[];
   onShowResult: (title: string, content: string) => void;
+  onUpdateProfile?: (updated: Partial<UserProfile>) => void;
 }
 
 const AREAS = [
@@ -48,72 +50,408 @@ const COLOR_MAP: { [key: string]: { bg: string, text: string, border: string } }
   yellow: { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-500', border: 'hover:border-yellow-200 dark:hover:border-yellow-900' },
 };
 
-const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResult }) => {
-  const [recommendation, setRecommendation] = useState<{ area: string, reason: string } | null>(null);
+// Check if a timestamp is from the current calendar day
+const isToday = (timestamp?: string): boolean => {
+  if (!timestamp) return false;
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate()
+    );
+  } catch {
+    return false;
+  }
+};
+
+const getTodayDateKey = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResult, onUpdateProfile }) => {
+  const todayKey = useMemo(() => getTodayDateKey(), []);
+  const storageKey = useMemo(() => {
+    const uid = auth.currentUser?.uid || 'guest';
+    return `fitai_fixed_workouts_${uid}_${todayKey}`;
+  }, [todayKey]);
+
+  // Environment state (Home vs Gym)
+  const [environment, setEnvironment] = useState<WorkoutEnvironment>(() => {
+    return userProfile?.workoutEnvironment || 'home';
+  });
+
+  // Sync environment when userProfile loads or updates
+  useEffect(() => {
+    if (userProfile?.workoutEnvironment && userProfile.workoutEnvironment !== environment) {
+      setEnvironment(userProfile.workoutEnvironment);
+    }
+  }, [userProfile?.workoutEnvironment]);
+
+  // Read initial cached workouts from localStorage
+  const [cachedWorkouts, setCachedWorkouts] = useState<{ [area: string]: string }>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // ignore
+    }
+    return {};
+  });
+
+  const [recommendation, setRecommendation] = useState<{ area: string; reason: string } | null>(() => {
+    if (userProfile?.preloadedFocusAreaRecommendation) {
+      if (typeof userProfile.preloadedFocusAreaRecommendation === 'object') {
+        const rec = userProfile.preloadedFocusAreaRecommendation;
+        if (!rec.timestamp || isToday(rec.timestamp)) {
+          return { area: rec.area, reason: rec.reason };
+        }
+      } else if (typeof userProfile.preloadedFocusAreaRecommendation === 'string') {
+        try {
+          const parsed = JSON.parse(userProfile.preloadedFocusAreaRecommendation);
+          if (parsed.area && parsed.reason) return parsed;
+        } catch {
+          return { area: userProfile.preloadedFocusAreaRecommendation, reason: "Today's targeted training focus." };
+        }
+      }
+    }
+    return null;
+  });
+
   const [isRecommending, setIsRecommending] = useState(false);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const lastProcessedFoodCount = useRef(foodLog.length);
 
+  // Sync workouts from userProfile when available and valid for today
   useEffect(() => {
-    if (userProfile && !recommendation) {
-      handleGetRecommendation();
-    }
-  }, [userProfile]);
+    if (!userProfile) return;
 
-  // Auto-refresh recommendation when food log changes
+    setCachedWorkouts(prev => {
+      const updated = { ...prev };
+      let changed = false;
+
+      // 1. If userProfile has preloadedWorkouts for today
+      if (userProfile.preloadedWorkouts && isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+        Object.entries(userProfile.preloadedWorkouts).forEach(([key, workout]) => {
+          if (workout && (!updated[key] || updated[key] !== workout)) {
+            updated[key] = workout;
+            changed = true;
+          }
+        });
+      }
+
+      // 2. If userProfile has preloadedWorkout for Full Body today (from daily preload)
+      if (userProfile.preloadedWorkout && 
+          (isToday(userProfile.lastMealPreloadTimestamp) || isToday(userProfile.lastWorkoutPreloadTimestamp))) {
+        const envKey = `Full Body_${userProfile.workoutEnvironment || 'home'}`;
+        if (!updated[envKey]) {
+          updated[envKey] = userProfile.preloadedWorkout;
+          changed = true;
+        }
+        if (!updated['Full Body']) {
+          updated['Full Body'] = userProfile.preloadedWorkout;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        return updated;
+      }
+      return prev;
+    });
+
+    // Sync recommendation if present on profile
+    if (userProfile.preloadedFocusAreaRecommendation && !recommendation) {
+      if (typeof userProfile.preloadedFocusAreaRecommendation === 'object') {
+        const rec = userProfile.preloadedFocusAreaRecommendation;
+        if (!rec.timestamp || isToday(rec.timestamp)) {
+          setRecommendation({ area: rec.area, reason: rec.reason });
+        }
+      } else if (typeof userProfile.preloadedFocusAreaRecommendation === 'string') {
+        try {
+          const parsed = JSON.parse(userProfile.preloadedFocusAreaRecommendation);
+          if (parsed.area) setRecommendation(parsed);
+        } catch {
+          setRecommendation({ area: userProfile.preloadedFocusAreaRecommendation, reason: "Today's targeted training focus." });
+        }
+      }
+    }
+  }, [userProfile, storageKey, recommendation]);
+
+  // Initial load for focus recommendation if not yet generated today
   useEffect(() => {
-    if (foodLog.length > lastProcessedFoodCount.current) {
-      // A new meal was added! 
-      // Refresh after a small delay to allow Dashboard calls to finish or queue up properly
-      const timer = setTimeout(() => {
-        handleGetRecommendation();
-      }, 3000);
-      lastProcessedFoodCount.current = foodLog.length;
-      return () => clearTimeout(timer);
-    } else if (foodLog.length < lastProcessedFoodCount.current) {
-      lastProcessedFoodCount.current = foodLog.length;
+    if (userProfile && !recommendation && !isRecommending) {
+      handleGetRecommendation(false);
     }
-  }, [foodLog.length]);
+  }, [userProfile, recommendation, isRecommending]);
 
-  const handleGetRecommendation = async () => {
+  // Fetch or regenerate the focus recommendation
+  const handleGetRecommendation = async (forceRefresh = false) => {
+    if (recommendation && !forceRefresh) return;
+
     setIsRecommending(true);
     try {
       const result = await recommendFocusArea(userProfile, stats, foodLog);
-      setRecommendation(result);
+      if (result && result.area) {
+        setRecommendation(result);
+
+        // Persist to Firestore so it stays fixed for today across all visits
+        if (auth.currentUser) {
+          const userDocRef = doc(db, 'users', auth.currentUser.uid);
+          await setDoc(userDocRef, {
+            preloadedFocusAreaRecommendation: {
+              area: result.area,
+              reason: result.reason,
+              timestamp: new Date().toISOString()
+            }
+          }, { merge: true });
+        }
+      }
     } catch (error) {
-      console.error("Failed to get recommendation", error);
+      console.error("Failed to get focus area recommendation", error);
     } finally {
       setIsRecommending(false);
     }
   };
 
-  const handleGenerateWorkout = async (area: string) => {
+  // Helper to switch environment and persist
+  const handleSwitchEnvironment = async (newEnv: WorkoutEnvironment) => {
+    if (newEnv === environment) return;
+    setEnvironment(newEnv);
+    onUpdateProfile?.({ workoutEnvironment: newEnv });
+
+    if (auth.currentUser) {
+      try {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, { workoutEnvironment: newEnv }, { merge: true });
+      } catch (err) {
+        console.error("Failed to update workout environment in Firestore", err);
+      }
+    }
+  };
+
+  // Helper to retrieve fixed workout for a specific area and environment if already generated today
+  const getAreaWorkout = useCallback((area: string, env: WorkoutEnvironment = environment): string | null => {
+    const envKey = `${area}_${env}`;
+    // 1. Check environment-specific key in local cache
+    if (cachedWorkouts[envKey]) {
+      return cachedWorkouts[envKey];
+    }
+    
+    // 2. Check environment-specific key in profile
+    if (userProfile?.preloadedWorkouts?.[envKey] && isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+      return userProfile.preloadedWorkouts[envKey];
+    }
+
+    // 3. Fallback to raw area if it was stored without env suffix and matches current environment
+    if (cachedWorkouts[area] && (userProfile?.workoutEnvironment === env || !userProfile?.workoutEnvironment)) {
+      return cachedWorkouts[area];
+    }
+
+    // 4. Check legacy preloadedWorkout for Full Body
+    if (area === 'Full Body') {
+      if (userProfile?.preloadedWorkout && 
+          (userProfile.workoutEnvironment === env || !userProfile.workoutEnvironment) &&
+          (isToday(userProfile.lastMealPreloadTimestamp) || isToday(userProfile.lastWorkoutPreloadTimestamp))) {
+        return userProfile.preloadedWorkout;
+      }
+      if (userProfile?.preloadedWorkouts?.['Full Body'] && 
+          (userProfile.workoutEnvironment === env || !userProfile.workoutEnvironment) &&
+          isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+        return userProfile.preloadedWorkouts['Full Body'];
+      }
+    }
+
+    return null;
+  }, [cachedWorkouts, userProfile, environment]);
+
+  // Main interaction handler: opens existing fixed recommendation instantly or generates once
+  const handleSelectArea = async (area: string, forceRegenerate = false, explicitEnv?: WorkoutEnvironment) => {
+    const targetEnv = explicitEnv || environment;
+    if (explicitEnv && explicitEnv !== environment) {
+      handleSwitchEnvironment(explicitEnv);
+    }
+    const existing = getAreaWorkout(area, targetEnv);
+    const envLabel = targetEnv === 'gym' ? 'Gym' : 'Home';
+
+    // FIXED RECOMMENDATION: Opens immediately without loading if already generated today!
+    if (existing && !forceRegenerate) {
+      onShowResult(`${area} (${envLabel}) Workout`, existing);
+      return;
+    }
+
+    // Generate for the first time today (or on explicit refresh)
     setIsGenerating(true);
-    setSelectedArea(area);
+    setSelectedArea(`${area}_${targetEnv}`);
     try {
       const remainingMinutes = Math.max(stats.exerciseGoal - stats.exercise, 15);
-      const workout = await suggestWorkout(remainingMinutes, userProfile, area);
+      const workout = await suggestWorkout(remainingMinutes, userProfile, area, targetEnv);
+      
       if (workout) {
-        onShowResult(`${area} Focused Workout`, workout);
+        const envKey = `${area}_${targetEnv}`;
+        const updated = { 
+          ...cachedWorkouts, 
+          [envKey]: workout,
+          ...(area === 'Full Body' && targetEnv === (userProfile?.workoutEnvironment || 'home') ? { 'Full Body': workout } : {})
+        };
+        setCachedWorkouts(updated);
+
+        // Cache in localStorage for 0ms retrieval
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+
+        // Persist to Firestore
+        if (auth.currentUser) {
+          const userDocRef = doc(db, 'users', auth.currentUser.uid);
+          const payload: any = {
+            preloadedWorkouts: {
+              ...(userProfile?.preloadedWorkouts || {}),
+              [envKey]: workout
+            },
+            workoutEnvironment: targetEnv,
+            lastWorkoutPreloadTimestamp: new Date().toISOString()
+          };
+          if (area === 'Full Body' && targetEnv === (userProfile?.workoutEnvironment || 'home')) {
+            payload.preloadedWorkout = workout;
+          }
+          await setDoc(userDocRef, payload, { merge: true });
+        }
+
+        // Open result
+        onShowResult(`${area} (${envLabel}) Workout`, workout);
       }
     } catch (error) {
       console.error("Failed to generate workout", error);
     } finally {
       setIsGenerating(false);
+      setSelectedArea(null);
     }
   };
 
+  const isRecommendedAreaReady = recommendation ? Boolean(getAreaWorkout(recommendation.area, environment)) : false;
+
+  // Formatted goal display string based on user info
+  const goalLabel = useMemo(() => {
+    if (!userProfile?.goal) return 'Active Fitness';
+    switch (userProfile.goal) {
+      case 'lose_weight': return 'Weight Loss';
+      case 'gain_muscle': return 'Muscle Hypertrophy';
+      case 'maintain': return 'Maintenance & Tone';
+      default: return String(userProfile.goal).replace('_', ' ');
+    }
+  }, [userProfile?.goal]);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-          <Dumbbell className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-          Focus Your Training
-        </h2>
+      {/* Header & Section Title */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+            <Dumbbell className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            Workout Recommendations
+          </h2>
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+            Personalized to your {goalLabel.toLowerCase()} goal and tailored for today.
+          </p>
+        </div>
+
+        {/* Quick Location Switcher Pills in Header */}
+        <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => handleSwitchEnvironment('home')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+              environment === 'home'
+                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Home className="w-3.5 h-3.5" />
+            Home
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchEnvironment('gym')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+              environment === 'gym'
+                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Dumbbell className="w-3.5 h-3.5" />
+            Gym
+          </button>
+        </div>
       </div>
 
-      {/* AI Recommendation Card */}
+      {/* Full Body Workout: Quick Direct Home or Gym Selection */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center shrink-0">
+            <Zap className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-slate-900 dark:text-white">
+              Full Body Workout
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+              Select workout location:
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleSelectArea('Full Body', false, 'home')}
+            disabled={isGenerating}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 ${
+              environment === 'home'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            {isGenerating && selectedArea === 'Full Body_home' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Home className="w-3.5 h-3.5" />
+            )}
+            Home
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectArea('Full Body', false, 'gym')}
+            disabled={isGenerating}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 ${
+              environment === 'gym'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            {isGenerating && selectedArea === 'Full Body_gym' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Dumbbell className="w-3.5 h-3.5" />
+            )}
+            Gym
+          </button>
+        </div>
+      </div>
+
+      {/* AI Recommendation Card (Daily Focus) */}
       <div 
         className={`bg-indigo-50 dark:bg-indigo-950/20 rounded-[32px] p-6 border border-indigo-100 dark:border-indigo-900/30 relative overflow-hidden transition-all ${isRecommending ? 'animate-pulse' : ''}`}
       >
@@ -122,40 +460,76 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
         </div>
         
         <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="bg-indigo-600 text-[10px] font-black text-white uppercase tracking-tighter px-2 py-0.5 rounded-lg">AI Recommendation</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="bg-indigo-600 text-[10px] font-black text-white uppercase tracking-tighter px-2 py-0.5 rounded-lg">
+                Daily AI Focus
+              </div>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white/70 dark:bg-slate-800/60 px-2 py-0.5 rounded-md">
+                {environment === 'gym' ? '🏋️ Gym' : '🏠 Home'}
+              </span>
+              {isRecommendedAreaReady && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md">
+                  <CalendarCheck className="w-3 h-3" />
+                  Fixed for Today
+                </span>
+              )}
+            </div>
+            
             <button 
-              onClick={handleGetRecommendation}
+              type="button"
+              onClick={() => handleGetRecommendation(true)}
               disabled={isRecommending}
-              className="text-indigo-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+              title="Refresh today's AI recommendation"
+              className="text-indigo-400 hover:text-indigo-600 transition-colors disabled:opacity-50 p-1 rounded-lg hover:bg-indigo-100/50 dark:hover:bg-indigo-900/30"
             >
-              <RefreshCw className={`w-3 h-3 ${isRecommending ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isRecommending ? 'animate-spin' : ''}`} />
             </button>
           </div>
           
           {recommendation ? (
             <div className="animate-in slide-in-from-bottom-2 duration-500">
-              <h3 className="text-2xl font-black text-indigo-900 dark:text-indigo-100 mb-2">Focus on your <span className="text-indigo-600 dark:text-indigo-400 uppercase">{recommendation.area}</span> today.</h3>
+              <h3 className="text-2xl font-black text-indigo-900 dark:text-indigo-100 mb-2">
+                Focus on your <span className="text-indigo-600 dark:text-indigo-400 uppercase">{recommendation.area}</span> today.
+              </h3>
               <p className="text-indigo-700/70 dark:text-indigo-300 text-sm font-medium leading-relaxed italic mb-4">
                 "{recommendation.reason}"
               </p>
-              <button 
-                onClick={() => handleGenerateWorkout(recommendation.area)}
-                disabled={isGenerating}
-                className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
-              >
-                {isGenerating && selectedArea === recommendation.area ? (
-                   <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4" />
+              
+              <div className="flex items-center gap-3">
+                <button 
+                  type="button"
+                  onClick={() => handleSelectArea(recommendation.area)}
+                  disabled={isGenerating}
+                  className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+                >
+                  {isGenerating && selectedArea === `${recommendation.area}_${environment}` ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : isRecommendedAreaReady ? (
+                    <Eye className="w-4 h-4" />
+                  ) : (
+                    <Zap className="w-4 h-4" />
+                  )}
+                  {isRecommendedAreaReady ? `View ${recommendation.area} (${environment === 'gym' ? 'Gym' : 'Home'}) Workout` : `Generate ${recommendation.area} (${environment === 'gym' ? 'Gym' : 'Home'}) Workout`}
+                </button>
+
+                {isRecommendedAreaReady && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectArea(recommendation.area, true)}
+                    disabled={isGenerating}
+                    title="Generate a new variation for today"
+                    className="p-3 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/40 rounded-2xl transition-all active:scale-95 disabled:opacity-50 border border-indigo-200/50 dark:border-indigo-800/40"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isGenerating && selectedArea === `${recommendation.area}_${environment}` ? 'animate-spin' : ''}`} />
+                  </button>
                 )}
-                Generate {recommendation.area} Workout
-              </button>
+              </div>
             </div>
           ) : (
             <div className="py-4 space-y-2">
-              <div className="h-4 bg-indigo-200 dark:bg-indigo-900 rounded w-3/4"></div>
-              <div className="h-4 bg-indigo-200 dark:bg-indigo-900 rounded w-1/2"></div>
+              <div className="h-4 bg-indigo-200 dark:bg-indigo-900 rounded w-3/4 animate-pulse"></div>
+              <div className="h-4 bg-indigo-200 dark:bg-indigo-900 rounded w-1/2 animate-pulse"></div>
             </div>
           )}
         </div>
@@ -163,25 +537,64 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
 
       {/* Manual Area Grid */}
       <div className="space-y-3">
-        <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Manual Selection</p>
-        <div className="grid grid-cols-4 gap-3">
-          {AREAS.map((area) => (
-            <button
-              key={area.id}
-              onClick={() => handleGenerateWorkout(area.id)}
-              disabled={isGenerating}
-              className={`p-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-90 ${COLOR_MAP[area.color].border} group ${isGenerating ? 'opacity-50' : ''}`}
-            >
-              <div className={`w-10 h-10 rounded-xl ${COLOR_MAP[area.color].bg} flex items-center justify-center transition-transform group-hover:scale-110`}>
-                {isGenerating && selectedArea === area.id ? (
-                  <RefreshCw className="w-5 h-5 text-indigo-500 animate-spin" />
-                ) : (
-                  area.icon
+        <div className="flex items-center justify-between ml-1">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-slate-400" />
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Target Muscle Focus ({environment === 'gym' ? 'Gym' : 'Home'})
+            </p>
+          </div>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+            Tap to open today's {environment} routine
+          </span>
+        </div>
+        
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+          {AREAS.map((area) => {
+            const isReady = Boolean(getAreaWorkout(area.id, environment));
+            const isCurrentGenerating = isGenerating && selectedArea === `${area.id}_${environment}`;
+
+            return (
+              <button
+                key={area.id}
+                type="button"
+                onClick={() => handleSelectArea(area.id)}
+                disabled={isGenerating}
+                className={`p-3.5 bg-white dark:bg-slate-900 border rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-90 relative group ${
+                  isReady 
+                    ? 'border-indigo-200 dark:border-indigo-800/70 shadow-sm bg-indigo-50/20 dark:bg-indigo-950/10' 
+                    : 'border-slate-100 dark:border-slate-800'
+                } ${COLOR_MAP[area.color].border} ${isGenerating && !isCurrentGenerating ? 'opacity-60' : ''}`}
+              >
+                {/* Fixed Ready Indicator Dot */}
+                {isReady && (
+                  <span 
+                    title={`Fixed ${environment} workout ready for today`} 
+                    className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900"
+                  />
                 )}
-              </div>
-              <span className="text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-tighter">{area.label}</span>
-            </button>
-          ))}
+
+                <div className={`w-11 h-11 rounded-xl ${COLOR_MAP[area.color].bg} flex items-center justify-center transition-transform group-hover:scale-110 relative`}>
+                  {isCurrentGenerating ? (
+                    <RefreshCw className="w-5 h-5 text-indigo-500 animate-spin" />
+                  ) : (
+                    area.icon
+                  )}
+                </div>
+
+                <div className="flex flex-col items-center">
+                  <span className="text-[11px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight text-center">
+                    {area.label}
+                  </span>
+                  {isReady && (
+                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      Ready
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

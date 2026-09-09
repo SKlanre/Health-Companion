@@ -61,6 +61,9 @@
           }
         },
         "preloadedWorkout": { "type": "string" },
+        "preloadedWorkouts": { "type": "object" },
+        "lastWorkoutPreloadTimestamp": { "type": "string" },
+        "preloadedFocusAreaRecommendation": { "type": "object" },
         "lastMealPreloadTimestamp": { "type": "string" },
         "darkMode": { "type": "boolean" },
         "stats": {

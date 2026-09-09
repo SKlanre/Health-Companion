@@ -40,7 +40,15 @@ export interface UserProfile {
     };
   };
   preloadedWorkout?: string;
-  preloadedFocusAreaRecommendation?: string;
+  preloadedWorkouts?: {
+    [area: string]: string;
+  };
+  lastWorkoutPreloadTimestamp?: string;
+  preloadedFocusAreaRecommendation?: {
+    area: string;
+    reason: string;
+    timestamp?: string;
+  } | string;
   lastMealPreloadTimestamp?: string;
   darkMode?: boolean;
   hasAcceptedTerms?: boolean;

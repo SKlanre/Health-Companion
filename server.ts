@@ -31,12 +31,15 @@ function getGeminiClient(): GoogleGenAI {
   return geminiClient;
 }
 
+// Recommended valid Gemini models: gemini-3.1-flash-lite (fresh quota) -> gemini-flash-latest (gemini-3.8-flash)
+const AI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
+
 // Multi-model retry and backoff helper
 async function generateContentWithRetryAndFallback(
   ai: GoogleGenAI,
   models: string[],
   requestConfig: any,
-  maxRetriesPerModel: number = 2
+  maxRetriesPerModel: number = 1
 ) {
   let lastError: any = null;
   for (const model of models) {
@@ -57,8 +60,14 @@ async function generateContentWithRetryAndFallback(
 
         console.warn(`[Gemini API] Model '${model}' attempt ${attempt + 1} failed: ${err?.message}`);
 
-        if ((isRateLimit || isTransient) && attempt < maxRetriesPerModel) {
-          const delay = (attempt + 1) * 1200 + Math.random() * 600;
+        // If it's a 429 quota exhaustion on this model, retrying the same model will fail.
+        // Immediately try the next model in the fallback list!
+        if (isRateLimit) {
+          break;
+        }
+
+        if (isTransient && attempt < maxRetriesPerModel) {
+          const delay = (attempt + 1) * 800 + Math.random() * 400;
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -89,6 +98,226 @@ function cleanAndParseJson<T>(text: string | undefined, fallback: T): T {
     }
     return fallback;
   }
+}
+
+// Smart offline & quota fallback generators
+function generateFallbackWorkout(remainingMinutes: number, profile: any, focusArea?: string, environment?: string): string {
+  const mins = Math.max(10, remainingMinutes || 20);
+  const targetArea = focusArea || 'Full Body';
+  const env = (environment || profile?.workoutEnvironment || 'home').toLowerCase();
+  const isGym = env === 'gym';
+  const goal = profile?.goal ? String(profile.goal).replace('_', ' ') : 'fitness';
+
+  if (isGym) {
+    return `# 🏋️ ${mins}-Minute Gym ${targetArea} Routine
+
+## Overview
+- **Goal:** Targeted ${goal} conditioning.
+- **Environment:** Gym (Barbells, Dumbbells & Cable Stations)
+- **Target Area:** ${targetArea}
+- **Equipment:** Free Weights & Machines
+
+## Workout Routine (${mins} mins)
+1. **Dynamic Warm-Up (3 mins)**
+   - Treadmill light jog or elliptical — 2 mins
+   - Arm circles, rotator cuff band work & hip openers — 1 min
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+gym+dynamic+warmup)
+
+2. **Core Training Circuit (14 mins, 3 rounds)**
+   - **Dumbbell Goblet Squats or Leg Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+goblet+squats)
+   - **Dumbbell Flat Bench Press or Machine Chest Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+bench+press)
+   - **Lat Pulldown or Seated Cable Row:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+lat+pulldown+proper+form)
+   - **Dumbbell Overhead Shoulder Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+shoulder+press)
+   - **Hanging Knee Raises or Cable Woodchoppers:** 12-15 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+hanging+knee+raises)
+   - Rest 60 seconds between rounds.
+
+3. **Cool-Down & Recovery (3 mins)**
+   - Chest doorway stretch & hamstring stretch — 90s
+   - Foam rolling or light walking — 90s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+post+workout+stretches)
+
+> **Pro-tip:** Select a resistance where the final 2 reps of each set feel challenging while maintaining pristine posture, controlled eccentric tempo, and steady breathing.`;
+  }
+
+  return `# 🏠 ${mins}-Minute Home ${targetArea} Circuit
+
+## Overview
+- **Goal:** Customized for your ${goal} target.
+- **Environment:** Home (Bodyweight / No Equipment Needed)
+- **Target Area:** ${targetArea}
+- **Equipment:** Bodyweight & Living Room Space
+
+## Workout Routine (${mins} mins)
+1. **Dynamic Warm-Up (3 mins)**
+   - High knees & arm circles — 45s
+   - Torso twists & hip openers — 45s
+   - Light jumping jacks — 60s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dynamic+warm+up+exercises)
+
+2. **Core Interval Set (14 mins, 3 rounds)**
+   - **Bodyweight Squats / Pulse Squats:** 15 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+bodyweight+squats)
+   - **Push-Ups (Standard, Incline, or Kneeling):** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+push+ups+proper+form)
+   - **Reverse Lunges / Glute Bridges:** 12 reps per side
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+reverse+lunges)
+   - **Plank Hold with Shoulder Taps:** 45 seconds
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+plank+shoulder+taps)
+   - **Mountain Climbers:** 30 seconds
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+mountain+climbers)
+   - Rest 45 seconds between rounds.
+
+3. **Cool-Down & Recovery (3 mins)**
+   - Hamstring & quad stretches — 60s
+   - Child's pose / deep diaphragm breathing — 60s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+post+workout+stretches)
+
+> **Pro-tip:** Maintain an engaged core, neutral spine, and steady nasal breathing rhythm throughout each repetition. Hydrate with water right after!`;
+}
+
+function generateFallbackFocusArea(profile: any, stats: any): { area: string; reason: string } {
+  const goal = profile?.goal || 'maintain';
+  if (goal === 'gain_muscle') {
+    return { area: "Chest", reason: "Targeting chest and upper body strength to support your muscle-building progress today." };
+  } else if (goal === 'lose_weight') {
+    return { area: "Cardio", reason: "Elevate calorie burn and metabolic rate with focused cardiovascular conditioning today." };
+  }
+  return { area: "Full Body", reason: "A balanced full-body conditioning session to keep momentum high and feel energized." };
+}
+
+function generateFallbackDailyMeals(remainingCalories: number, profile: any) {
+  const total = Math.max(1200, remainingCalories || 2000);
+  const bCals = Math.round(total * 0.25);
+  const lCals = Math.round(total * 0.35);
+  const dCals = Math.round(total * 0.30);
+  const sCals = Math.max(50, total - (bCals + lCals + dCals));
+
+  return {
+    breakfast: {
+      content: `# Power Protein Oatmeal Bowl\n- 1/2 cup rolled oats cooked with almond milk\n- 1 scoop vanilla whey or plant protein\n- 1 tbsp chia seeds & fresh berries\n\n**Key Benefit:** Sustained morning energy and complex carbohydrates to kickstart your metabolism.`,
+      calories: bCals,
+    },
+    lunch: {
+      content: `# Grilled Chicken & Quinoa Harvest Bowl\n- 5 oz tender grilled chicken breast (or pan-seared tofu)\n- 1/2 cup fluffy quinoa\n- Steamed broccoli, roasted bell peppers, and avocado drizzle\n\n**Key Benefit:** High-protein muscle support combined with micronutrient-rich fiber.`,
+      calories: lCals,
+    },
+    dinner: {
+      content: `# Pan-Seared Salmon with Sweet Potato\n- 5 oz omega-rich wild salmon filet\n- 1 medium roasted sweet potato with olive oil\n- Large side of sautéed garlic spinach\n\n**Key Benefit:** Healthy omega-3 fats and slow-digesting complex carbs for nighttime muscle repair.`,
+      calories: dCals,
+    },
+    snacks: {
+      content: `# Greek Yogurt & Almond Energy Crunch\n- 3/4 cup plain non-fat Greek yogurt\n- Handful of raw almonds and a touch of honey\n\n**Key Benefit:** High casein protein to curb sweet cravings and keep you full.`,
+      calories: sCals,
+    },
+  };
+}
+
+function generateFallbackSingleMeal(remainingCalories: number, mealType: string, totalDailyGoal: number = 2000) {
+  const type = (mealType || 'lunch').toLowerCase();
+  let target = Math.round(totalDailyGoal * 0.3);
+  if (type === 'breakfast') target = Math.round(totalDailyGoal * 0.25);
+  if (type === 'lunch') target = Math.round(totalDailyGoal * 0.35);
+  if (type === 'dinner') target = Math.round(totalDailyGoal * 0.30);
+  if (type === 'snack') target = Math.round(totalDailyGoal * 0.10);
+  if (remainingCalories && remainingCalories > 100) {
+    target = Math.min(target, remainingCalories);
+  }
+
+  const mealPresets: Record<string, { title: string; bullets: string[]; benefit: string }> = {
+    breakfast: {
+      title: 'Avocado & Scrambled Egg Toast',
+      bullets: ['2 organic eggs scrambled with a splash of milk', '1 slice toasted whole grain sourdough', '1/4 ripe avocado seasoned with sea salt and chili flakes'],
+      benefit: 'Packed with choline, essential amino acids, and heart-healthy unsaturated fats.',
+    },
+    lunch: {
+      title: 'Mediterranean Herb Chicken & Greens',
+      bullets: ['Grilled lemon-herb chicken breast strips', 'Mixed greens, cucumber, cherry tomatoes, and Kalamata olives', 'Light drizzle of extra virgin olive oil and balsamic vinegar'],
+      benefit: 'Clean lean protein paired with vibrant micronutrients and polyphenol antioxidants.',
+    },
+    dinner: {
+      title: 'Steak & Roasted Veggie Skillet',
+      bullets: ['Lean sirloin or turkey medallions seared medium', 'Roasted zucchini, sweet bell peppers, and asparagus', 'Small baked golden potato with sea salt'],
+      benefit: 'Iron-rich, protein-dense dinner supporting overnight recovery without heavy digestion.',
+    },
+    snack: {
+      title: 'Apple Slices with Natural Peanut Butter',
+      bullets: ['1 crisp honeycrisp or gala apple sliced', '1.5 tbsp creamy natural peanut or almond butter'],
+      benefit: 'Balanced fiber and healthy fats that stabilize blood sugar.',
+    },
+  };
+
+  const selected = mealPresets[type] || mealPresets.lunch;
+  return {
+    content: `# ${selected.title}\n${selected.bullets.map((b) => `- ${b}`).join('\n')}\n\n**Key Benefit:** ${selected.benefit}`,
+    calories: target,
+  };
+}
+
+function generateFallbackGoalSteps(profile: any, stats: any): string {
+  const calsLeft = Math.max(0, (stats?.caloriesGoal || 2000) - (stats?.calories || 0));
+  const stepsLeft = Math.max(0, (stats?.stepsGoal || 10000) - (stats?.steps || 0));
+
+  return `### 🎯 Your Top 3 Next Steps Today
+
+1. **Hydration First 💧**
+   Drink a large 16oz glass of water right now to optimize metabolic rate and curb false hunger cues.
+
+2. **Step Gap Close 🚶‍♂️**
+   You have **${stepsLeft.toLocaleString()} steps** remaining to hit your target. A 15-20 minute brisk stroll will easily bank 2,000+ steps!
+
+3. **Fuel Smartly 🥗**
+   With **${calsLeft} kcal** left for the day, focus your next meal around lean protein (chicken, fish, eggs, or tofu) and leafy greens to stay satisfied.`;
+}
+
+function generateFallbackVoiceMeal(transcription: string) {
+  const text = (transcription || '').toLowerCase();
+
+  // Check if transcription contains explicit calories like "350 calories" or "500 cal"
+  const calMatch = text.match(/(\d+)\s*(?:calories|calorie|cals|cal|kcal)/i);
+  let calories = calMatch ? parseInt(calMatch[1], 10) : 0;
+
+  // Check if user is asking a question or seeking advice
+  const isQuestion = text.includes('?') || text.startsWith('how') || text.startsWith('what') || text.startsWith('should') || text.startsWith('can i') || text.startsWith('is this');
+
+  if (isQuestion) {
+    return {
+      intent: 'advice',
+      response: 'To support your fitness goals, prioritize nutrient-dense whole foods: high-protein options (eggs, chicken, fish, tofu), complex carbohydrates (quinoa, sweet potatoes, oats), and plenty of colorful vegetables. Keep hydration consistent throughout the day!',
+      mealName: null,
+      calories: 0,
+      analysis: 'Nutrition guidance provided.',
+    };
+  }
+
+  // Common food keyword estimates
+  if (!calories) {
+    if (text.includes('salad')) calories = 250;
+    else if (text.includes('egg') || text.includes('toast')) calories = 300;
+    else if (text.includes('chicken') || text.includes('rice')) calories = 450;
+    else if (text.includes('burger') || text.includes('pizza') || text.includes('fries')) calories = 650;
+    else if (text.includes('shake') || text.includes('smoothie')) calories = 280;
+    else if (text.includes('oatmeal') || text.includes('oats')) calories = 320;
+    else calories = 400;
+  }
+
+  // Extract a sensible meal name from user speech
+  let mealName = transcription.trim();
+  if (mealName.length > 50) {
+    mealName = mealName.slice(0, 47) + '...';
+  }
+
+  return {
+    intent: 'log',
+    response: `Logged "${mealName}" (~${calories} kcal). Keeping your meals tracked helps you stay on course with your fitness targets!`,
+    mealName: mealName || 'Logged Meal',
+    calories,
+    analysis: 'Estimated from voice note. Tap to adjust details anytime.',
+  };
 }
 
 async function startServer() {
@@ -140,7 +369,7 @@ RULES:
       try {
         response = await generateContentWithRetryAndFallback(
           ai,
-          ['gemini-flash-latest', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'],
+          AI_MODELS,
           {
             contents: {
               parts: [
@@ -174,9 +403,9 @@ RULES:
         console.warn('Gemini vision models exhausted or rate-limited, returning resilient food estimate fallback:', err3);
         return res.json({
           isFood: true,
-          name: 'Healthy Meal (Estimated)',
+          name: additionalDetails ? `Meal (${additionalDetails.slice(0, 25)})` : 'Healthy Meal (Estimated)',
           calories: 420,
-          analysis: 'AI scan service is momentarily under high demand. Estimated baseline nutrition (~420 kcal) provided. Tap to adjust calories or details anytime!',
+          analysis: 'AI scan is momentarily under high demand. Baseline nutrition estimated (~420 kcal). Tap to adjust calories or details anytime!',
           wasFallback: true,
         });
       }
@@ -196,7 +425,6 @@ RULES:
       });
     } catch (err: any) {
       console.error('Server scan food error:', err);
-      // Even on outer error, return a usable response rather than 500
       res.json({
         isFood: true,
         name: 'Scanned Meal',
@@ -251,7 +479,7 @@ Return a JSON object:
       try {
         response = await generateContentWithRetryAndFallback(
           ai,
-          ['gemini-flash-latest', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'],
+          AI_MODELS,
           {
             contents: prompt,
             config: {
@@ -272,31 +500,21 @@ Return a JSON object:
           }
         );
       } catch (e) {
-        console.warn('Voice meal fallback to default parse:', e);
+        console.warn('Voice meal AI unavailable or rate-limited, returning smart fallback:', e);
+        return res.json(generateFallbackVoiceMeal(transcription));
       }
 
       const parsed = response?.text 
-        ? cleanAndParseJson(response.text, {
-            intent: 'advice',
-            response: 'Got your meal note! How else can I assist with your fitness goals today?',
-            mealName: null,
-            calories: 0,
-            analysis: 'Note logged.',
-          })
-        : {
-            intent: 'advice',
-            response: 'Got your meal note! How else can I assist with your fitness goals today?',
-            mealName: null,
-            calories: 0,
-            analysis: 'Note logged.',
-          };
+        ? cleanAndParseJson(response.text, generateFallbackVoiceMeal(transcription))
+        : generateFallbackVoiceMeal(transcription);
 
       res.json(parsed);
     } catch (err: any) {
       console.error('Server voice meal error:', err);
-      res.status(500).json({ error: err.message || 'Failed to process voice meal' });
+      res.json(generateFallbackVoiceMeal(req.body?.transcription || ''));
     }
   });
+
   // 3. Buffet & Live Stream Analysis
   app.post('/api/gemini/buffet', async (req, res) => {
     try {
@@ -324,7 +542,7 @@ Return a JSON object:
       try {
         response = await generateContentWithRetryAndFallback(
           ai,
-          ['gemini-flash-latest', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'],
+          AI_MODELS,
           {
             contents: {
               parts: [
@@ -349,11 +567,11 @@ Return a JSON object:
       }
 
       const parsed = response?.text ? cleanAndParseJson(response.text, {
-        advice: 'Scan completed. Focus on lean proteins, fiber-rich greens, and moderate carb portions!',
+        advice: 'Scan completed. Focus on filling half your plate with leafy greens, one quarter with lean protein (grilled chicken, fish, or tofu), and one quarter with complex carbs (brown rice, sweet potato)!',
         estimatedCalories: Math.min(500, remainingCalories),
         isFood: true,
       }) : {
-        advice: 'Scan completed. Focus on lean proteins, fiber-rich greens, and moderate carb portions!',
+        advice: 'Scan completed. Focus on filling half your plate with leafy greens, one quarter with lean protein (grilled chicken, fish, or tofu), and one quarter with complex carbs (brown rice, sweet potato)!',
         estimatedCalories: Math.min(500, remainingCalories),
         isFood: true,
       };
@@ -361,48 +579,119 @@ Return a JSON object:
       res.json(parsed);
     } catch (err: any) {
       console.error('Server buffet scan error:', err);
-      res.status(500).json({ error: err.message || 'Failed to analyze buffet' });
+      res.json({
+        advice: 'Plate scanned! Aim for lean proteins and fibrous vegetables to keep within your calorie budget.',
+        estimatedCalories: Math.min(500, req.body?.remainingCalories || 500),
+        isFood: true,
+      });
     }
   });
 
   // 4. Suggest Workout
   app.post('/api/gemini/suggest-workout', async (req, res) => {
     try {
-      const { remainingMinutes, profile, focusArea } = req.body;
+      const { remainingMinutes, profile, focusArea, environment } = req.body;
       const ai = getGeminiClient();
-      const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment || 'anywhere'}.` : '';
-      const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'} and they have a ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'} activity level. Location: ${profile.location || 'Home'}. ${envText}` : '';
-      const focusText = focusArea ? `The user wants to FOCUS on: ${focusArea}.` : '';
+      const activeEnv = (environment || profile?.workoutEnvironment || 'home').toLowerCase();
+      const isGym = activeEnv === 'gym';
+      const targetArea = focusArea || 'Full Body';
 
-      const prompt = `The user needs to complete ${remainingMinutes || 20} more minutes of exercise today. ${goalText} ${focusText}
-Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
-If a focus area is provided, the exercises MUST primarily target that area.
+      const envInstructions = isGym
+        ? `WORKOUT LOCATION: GYM. The user has access to a commercial gym. Recommend exercises that utilize gym equipment such as barbells, dumbbells, cable stations, benches, and resistance machines. Provide suggested set/rep schemes (e.g., 3 sets of 10-12 reps).`
+        : `WORKOUT LOCATION: HOME. The user is training at HOME. Strictly recommend exercises that can be performed using bodyweight, calisthenics, floor mats, or common household items (chair, wall). DO NOT suggest heavy gym equipment, barbell racks, or cable machines.`;
+
+      const goalText = profile 
+        ? `User Profile: Goal is ${profile.goal ? profile.goal.replace('_', ' ') : 'fitness'}, Activity Level: ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'}, Weight: ${profile.weight || 150} lbs, Location: ${profile.location || 'Home'}.`
+        : '';
+
+      const prompt = `The user needs a personalized ${remainingMinutes || 20}-minute ${targetArea} workout.
+${goalText}
+${envInstructions}
+Target Muscle Focus: ${targetArea}
+
+Tailor the volume, intensity, and exercise selection strictly to their goal (${profile?.goal || 'fitness'}), experience, and the ${isGym ? 'GYM' : 'HOME'} environment.
 
 Format the response using Markdown:
-- Start with a catchy # Heading
+- Start with an inspiring # Heading (e.g., # 🏋️ ${remainingMinutes || 20}-Minute Gym ${targetArea} Power Session or # 🏠 ${remainingMinutes || 20}-Minute Home ${targetArea} Circuit)
 - Use ## Subheadings for sections
-- Provide 2-3 brief bullet points on the benefits
-- List the exercises clearly.
-- CRITICAL: For EVERY exercise suggested, include a link to search for it on YouTube. 
-  Format as: [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+[exercise+name])
-- Include a 'Pro-tip' for form in a blockquote or bold text
-- Keep it motivating and punchy.`;
+- ## Overview: 2-3 brief bullet points on key benefits, targeted muscles, and equipment (${isGym ? 'Free Weights & Gym Machines' : 'Bodyweight / No Equipment'})
+- ## Workout Routine (${remainingMinutes || 20} mins):
+  List the warm-up, core working exercises with sets/reps/intervals, and cool-down.
+- CRITICAL: For EVERY exercise suggested, include a link to search for it on YouTube in this exact format:
+  [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+[exercise+name])
+- Include a bold > **Pro-tip:** for proper form, tempo, breathing, and safe execution in the ${isGym ? 'gym' : 'home'} setting.
+- Keep it motivating, punchy, and clear.`;
 
-      const response = await generateContentWithRetryAndFallback(
-        ai,
-        ['gemini-flash-latest', 'gemini-3.7-flash'],
-        {
-          contents: prompt,
-          config: {
-            temperature: 0.8,
-          },
-        }
-      );
+      let responseText: string | null = null;
+      try {
+        const response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.8,
+            },
+          }
+        );
+        responseText = response?.text || null;
+      } catch (geminiErr) {
+        console.warn('Workout Gemini AI call failed, using high-quality workout routine fallback:', geminiErr);
+        responseText = generateFallbackWorkout(remainingMinutes, profile, targetArea, activeEnv);
+      }
 
-      res.json({ text: response.text });
+      res.json({ text: responseText || generateFallbackWorkout(remainingMinutes, profile, targetArea, activeEnv) });
     } catch (err: any) {
       console.error('Server workout error:', err);
-      res.status(500).json({ error: err.message || 'Failed to suggest workout' });
+      res.json({ text: generateFallbackWorkout(req.body?.remainingMinutes, req.body?.profile, req.body?.focusArea, req.body?.environment) });
+    }
+  });
+
+  // 4b. Recommend Focus Area
+  app.post('/api/gemini/recommend-focus-area', async (req, res) => {
+    try {
+      const { profile = null, stats = {}, foodHistory = [] } = req.body;
+      const ai = getGeminiClient();
+      const goalText = profile ? `Goal: ${profile.goal ? profile.goal.replace('_', ' ') : 'fitness'}. Weight: ${profile.weight}lbs. Location: ${profile.location || 'Home'}. History: ${foodHistory.length} meals logged.` : '';
+
+      const prompt = `Based on the following user data:
+${goalText}
+Current Day Progress: ${stats.calories || 0}/${stats.caloriesGoal || 2000} kcal, ${stats.exercise || 0}/${stats.exerciseGoal || 30} mins exercise.
+
+Recommend ONE primary body area or exercise type the user should focus on today. 
+Options include: Cardio, Legs, Biceps, Triceps, Back, Chest, Shoulders, Core, or Full Body.
+
+Provide a 1-sentence personalized justification.
+
+Format your response as a JSON object:
+{
+  "area": "Cardio | Legs | Biceps | Triceps | Back | Chest | Shoulders | Core | Full Body",
+  "reason": "Brief justification"
+}`;
+
+      let response;
+      try {
+        response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.7,
+              responseMimeType: 'application/json',
+            },
+          }
+        );
+      } catch (geminiErr) {
+        console.warn('Recommend focus area Gemini call failed, using fallback:', geminiErr);
+        return res.json(generateFallbackFocusArea(profile, stats));
+      }
+
+      const parsed = cleanAndParseJson(response?.text, generateFallbackFocusArea(profile, stats));
+      res.json(parsed);
+    } catch (err: any) {
+      console.error('Server recommend focus area error:', err);
+      res.json(generateFallbackFocusArea(req.body?.profile, req.body?.stats));
     }
   });
 
@@ -426,49 +715,55 @@ Each value should be an object with 'content' (Markdown string) and 'calories' (
 - content: Use a # Heading for the meal name, bullet points for key ingredients, and one key benefit in bold.
 - calories: The exact calorie count for this meal.`;
 
-      const response = await generateContentWithRetryAndFallback(
-        ai,
-        ['gemini-flash-latest', 'gemini-3.7-flash'],
-        {
-          contents: prompt,
-          config: {
-            temperature: 0.7,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                breakfast: { 
-                  type: Type.OBJECT,
-                  properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
-                  required: ['content', 'calories'],
+      let parsed: any = null;
+      try {
+        const response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.7,
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  breakfast: { 
+                    type: Type.OBJECT,
+                    properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
+                    required: ['content', 'calories'],
+                  },
+                  lunch: { 
+                    type: Type.OBJECT,
+                    properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
+                    required: ['content', 'calories'],
+                  },
+                  dinner: { 
+                    type: Type.OBJECT,
+                    properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
+                    required: ['content', 'calories'],
+                  },
+                  snacks: { 
+                    type: Type.OBJECT,
+                    properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
+                    required: ['content', 'calories'],
+                  },
                 },
-                lunch: { 
-                  type: Type.OBJECT,
-                  properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
-                  required: ['content', 'calories'],
-                },
-                dinner: { 
-                  type: Type.OBJECT,
-                  properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
-                  required: ['content', 'calories'],
-                },
-                snacks: { 
-                  type: Type.OBJECT,
-                  properties: { content: { type: Type.STRING }, calories: { type: Type.INTEGER } },
-                  required: ['content', 'calories'],
-                },
+                required: ['breakfast', 'lunch', 'dinner', 'snacks'],
               },
-              required: ['breakfast', 'lunch', 'dinner', 'snacks'],
             },
-          },
-        }
-      );
+          }
+        );
+        parsed = cleanAndParseJson(response.text, null);
+      } catch (geminiErr) {
+        console.warn('Daily meals AI call failed, generating tailored fallback meals:', geminiErr);
+        parsed = generateFallbackDailyMeals(remainingCalories, profile);
+      }
 
-      const parsed = cleanAndParseJson(response.text, null);
-      res.json(parsed);
+      res.json(parsed || generateFallbackDailyMeals(remainingCalories, profile));
     } catch (err: any) {
       console.error('Server daily meals error:', err);
-      res.status(500).json({ error: err.message || 'Failed to suggest daily meals' });
+      res.json(generateFallbackDailyMeals(req.body?.remainingCalories, req.body?.profile));
     }
   });
 
@@ -494,31 +789,37 @@ Format the response as a JSON object:
 - content: Markdown string with # Heading, bullet points, and one key benefit in bold.
 - calories: The exact calorie count (integer).`;
 
-      const response = await generateContentWithRetryAndFallback(
-        ai,
-        ['gemini-flash-latest', 'gemini-3.7-flash'],
-        {
-          contents: prompt,
-          config: {
-            temperature: 0.7,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                content: { type: Type.STRING },
-                calories: { type: Type.INTEGER },
+      let parsed: any = null;
+      try {
+        const response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.7,
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  content: { type: Type.STRING },
+                  calories: { type: Type.INTEGER },
+                },
+                required: ['content', 'calories'],
               },
-              required: ['content', 'calories'],
             },
-          },
-        }
-      );
+          }
+        );
+        parsed = cleanAndParseJson(response.text, null);
+      } catch (geminiErr) {
+        console.warn('Single meal AI call failed, generating tailored fallback meal:', geminiErr);
+        parsed = generateFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal);
+      }
 
-      const parsed = cleanAndParseJson(response.text, null);
-      res.json(parsed);
+      res.json(parsed || generateFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal));
     } catch (err: any) {
       console.error('Server meal error:', err);
-      res.status(500).json({ error: err.message || 'Failed to suggest meal' });
+      res.json(generateFallbackSingleMeal(req.body?.remainingCalories, req.body?.mealType, req.body?.totalDailyGoal));
     }
   });
 
@@ -540,21 +841,28 @@ Today's progress: ${stats?.calories || 0}/${stats?.caloriesGoal || 2000} kcal, $
 Provide 3 actionable, highly specific "Next Steps" or diet advice items.
 Format using Markdown: bulleted list with emojis, bold text for key actions.`;
 
-      const response = await generateContentWithRetryAndFallback(
-        ai,
-        ['gemini-flash-latest', 'gemini-3.7-flash'],
-        {
-          contents: prompt,
-          config: {
-            temperature: 0.8,
-          },
-        }
-      );
+      let responseText: string | null = null;
+      try {
+        const response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.8,
+            },
+          }
+        );
+        responseText = response?.text || null;
+      } catch (geminiErr) {
+        console.warn('Goal steps AI call failed, using smart goal steps fallback:', geminiErr);
+        responseText = generateFallbackGoalSteps(profile, stats);
+      }
 
-      res.json({ text: response.text });
+      res.json({ text: responseText || generateFallbackGoalSteps(profile, stats) });
     } catch (err: any) {
       console.error('Server goal steps error:', err);
-      res.status(500).json({ error: err.message || 'Failed to generate goal steps' });
+      res.json({ text: generateFallbackGoalSteps(req.body?.profile, req.body?.stats) });
     }
   });
 
@@ -564,20 +872,28 @@ Format using Markdown: bulleted list with emojis, bold text for key actions.`;
       const { postContent } = req.body;
       const ai = getGeminiClient();
       const prompt = `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`;
-      const response = await generateContentWithRetryAndFallback(
-        ai,
-        ['gemini-flash-latest', 'gemini-3.7-flash'],
-        {
-          contents: prompt,
-          config: {
-            temperature: 0.9,
-          },
-        }
-      );
-      res.json({ text: response.text });
+      let text: string | null = null;
+      try {
+        const response = await generateContentWithRetryAndFallback(
+          ai,
+          AI_MODELS,
+          {
+            contents: prompt,
+            config: {
+              temperature: 0.9,
+            },
+          }
+        );
+        text = response?.text || null;
+      } catch (geminiErr) {
+        console.warn('Cheer AI call failed, using default cheer:', geminiErr);
+        text = "Keep up the fantastic momentum, you're crushing your fitness goals! 🔥";
+      }
+
+      res.json({ text: text || "Keep up the fantastic momentum, you're crushing your fitness goals! 🔥" });
     } catch (err: any) {
       console.error('Server cheer error:', err);
-      res.status(500).json({ error: err.message || 'Failed to generate cheer' });
+      res.json({ text: "Keep up the fantastic momentum, you're crushing your fitness goals! 🔥" });
     }
   });
 

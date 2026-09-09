@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { UserProfile, DailyStats, FoodLogEntry } from "../types";
+import { UserProfile, DailyStats, FoodLogEntry, WorkoutEnvironment } from "../types";
 
 // Support both AI Studio backend server, direct client, and external deployments like Vercel
 const getClientApiKey = (): string => {
@@ -59,48 +59,191 @@ function cleanAndParseJson<T>(text: string | undefined, fallback: T): T {
   }
 }
 
-const handleGenAIError = (error: any): never => {
-  console.error("Gemini AI Error:", error);
-  let message = error?.message || "";
-  
-  // If the message is a stringified JSON, try to extract the actual message
-  try {
-    if (message.startsWith('{')) {
-      const parsed = JSON.parse(message);
-      if (parsed.error && parsed.error.message) {
-        message = parsed.error.message;
-      }
-    }
-  } catch (e) {
-    // Keep original message if parsing fails
+// Fallback generators for client-side resilience
+function getClientFallbackWorkout(remainingMinutes: number, profile: UserProfile | null, focusArea?: string, environment?: WorkoutEnvironment): string {
+  const mins = Math.max(10, remainingMinutes || 20);
+  const targetArea = focusArea || 'Full Body';
+  const env = environment || profile?.workoutEnvironment || 'home';
+  const isGym = env === 'gym';
+  const goal = profile?.goal ? String(profile.goal).replace('_', ' ') : 'fitness';
+
+  if (isGym) {
+    return `# 🏋️ ${mins}-Minute Gym ${targetArea} Routine
+
+## Overview
+- **Goal:** Tailored for your ${goal} journey.
+- **Environment:** Gym (Weights, Barbells & Cable Machines)
+- **Target Focus:** ${targetArea}
+- **Equipment:** Free Weights & Commercial Gym Machines
+
+## Workout Routine (${mins} mins)
+1. **Dynamic Warm-Up (3 mins)**
+   - Treadmill light incline jog or elliptical — 2 mins
+   - Arm circles, rotator cuff band pull-aparts & hip openers — 1 min
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+gym+dynamic+warmup)
+
+2. **Core Training Circuit (14 mins, 3 rounds)**
+   - **Dumbbell Goblet Squats or Leg Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+goblet+squats)
+   - **Dumbbell Flat Bench Press or Machine Chest Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+bench+press)
+   - **Lat Pulldown or Seated Cable Row:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+lat+pulldown+proper+form)
+   - **Dumbbell Overhead Shoulder Press:** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dumbbell+shoulder+press)
+   - **Hanging Knee Raises or Cable Woodchoppers:** 12-15 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+hanging+knee+raises)
+   - Rest 60 seconds between rounds.
+
+3. **Cool-Down & Stretch (3 mins)**
+   - Chest doorway stretch & hamstring stretch — 90s
+   - Foam rolling or light walking — 90s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+post+workout+stretches)
+
+> **Pro-tip:** Select a resistance where the final 2 reps of each set feel challenging while maintaining pristine posture, controlled eccentric tempo, and steady breathing.`;
   }
 
-  if (message.includes("Failed to fetch") || error?.name === "TypeError") {
-    throw new Error("Unable to reach AI service. Please check your internet connection or try again.");
+  return `# 🏠 ${mins}-Minute Home ${targetArea} Circuit
+
+## Overview
+- **Goal:** Tailored for your ${goal} journey.
+- **Environment:** Home (Bodyweight / Zero Equipment)
+- **Target Focus:** ${targetArea}
+- **Equipment:** Bodyweight & Living Room Space
+
+## Workout Routine (${mins} mins)
+1. **Dynamic Warm-Up (3 mins)**
+   - High knees & arm circles — 45s
+   - Torso twists & hip openers — 45s
+   - Light jumping jacks — 60s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+dynamic+warm+up+exercises)
+
+2. **Core Interval Set (14 mins, 3 rounds)**
+   - **Bodyweight Squats / Pulse Squats:** 15 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+bodyweight+squats)
+   - **Push-Ups (Standard, Incline, or Kneeling):** 10-12 reps
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+push+ups+proper+form)
+   - **Reverse Lunges / Glute Bridges:** 12 reps per side
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+reverse+lunges)
+   - **Plank Hold with Shoulder Taps:** 45 seconds
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+plank+shoulder+taps)
+   - **Mountain Climbers:** 30 seconds
+     [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+mountain+climbers)
+   - Rest 45 seconds between rounds.
+
+3. **Cool-Down & Stretch (3 mins)**
+   - Hamstring & quad stretches — 60s
+   - Child's pose / deep diaphragm breathing — 60s
+   - [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+post+workout+stretches)
+
+> **Pro-tip:** Maintain an engaged core, neutral spine, and steady nasal breathing rhythm throughout each repetition. Hydrate with water right after!`;
+}
+
+function getClientFallbackDailyMeals(remainingCalories: number) {
+  const total = Math.max(1200, remainingCalories || 2000);
+  const bCals = Math.round(total * 0.25);
+  const lCals = Math.round(total * 0.35);
+  const dCals = Math.round(total * 0.30);
+  const sCals = Math.max(50, total - (bCals + lCals + dCals));
+
+  return {
+    breakfast: {
+      content: `# Power Protein Oatmeal Bowl\n- 1/2 cup rolled oats cooked with unsweetened almond milk\n- 1 scoop vanilla whey or plant protein\n- 1 tbsp chia seeds & handful of fresh blueberries\n\n**Key Benefit:** Sustained morning energy and complex carbohydrates to fuel your day.`,
+      calories: bCals,
+    },
+    lunch: {
+      content: `# Mediterranean Grilled Chicken Bowl\n- 5 oz tender grilled chicken breast or seasoned tofu\n- 1/2 cup cooked quinoa with cucumber and cherry tomatoes\n- Light olive oil and lemon vinaigrette\n\n**Key Benefit:** Lean muscle synthesis combined with polyphenol-rich vegetables.`,
+      calories: lCals,
+    },
+    dinner: {
+      content: `# Pan-Seared Salmon & Roasted Sweet Potato\n- 5 oz wild salmon filet with sea salt and black pepper\n- 1 medium roasted sweet potato\n- Steamed broccoli florets with garlic\n\n**Key Benefit:** Anti-inflammatory omega-3 fatty acids that support joint health and overnight recovery.`,
+      calories: dCals,
+    },
+    snacks: {
+      content: `# Greek Yogurt & Raw Almonds\n- 3/4 cup non-fat plain Greek yogurt\n- 12-15 raw almonds and a touch of cinnamon\n\n**Key Benefit:** Slow-digesting casein protein that curbs evening sugar cravings.`,
+      calories: sCals,
+    },
+  };
+}
+
+function getClientFallbackSingleMeal(remainingCalories: number, mealType: string, totalDailyGoal: number = 2000) {
+  const type = (mealType || 'lunch').toLowerCase();
+  let target = Math.round(totalDailyGoal * 0.3);
+  if (type === 'breakfast') target = Math.round(totalDailyGoal * 0.25);
+  if (type === 'lunch') target = Math.round(totalDailyGoal * 0.35);
+  if (type === 'dinner') target = Math.round(totalDailyGoal * 0.30);
+  if (type === 'snack') target = Math.round(totalDailyGoal * 0.10);
+  if (remainingCalories && remainingCalories > 100) {
+    target = Math.min(target, remainingCalories);
   }
 
-  // Handle Rate Limits (429)
-  if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-    throw new Error("AI capacity reached (Rate Limit). Please wait a moment and try again.");
-  }
-  
-  // Handle Key issues (401)
-  if (message.includes("401") || message.includes("API_KEY_INVALID")) {
-    throw new Error("Invalid API Key configuration. Please check your dashboard settings.");
+  const mealPresets: Record<string, { title: string; bullets: string[]; benefit: string }> = {
+    breakfast: {
+      title: 'Avocado & Scrambled Egg Toast',
+      bullets: ['2 organic eggs scrambled in a non-stick pan', '1 slice toasted whole grain artisan sourdough', '1/4 sliced ripe avocado with a dash of sea salt and pepper'],
+      benefit: 'High in choline, clean protein, and monounsaturated healthy fats.',
+    },
+    lunch: {
+      title: 'Lemon Herb Grilled Chicken Salad',
+      bullets: ['5 oz grilled chicken breast strips', 'Mixed leafy greens, cucumbers, and cherry tomatoes', '1 tbsp extra virgin olive oil vinaigrette'],
+      benefit: 'Low glycemic, fiber-rich lunch that eliminates mid-day fatigue.',
+    },
+    dinner: {
+      title: 'Herb-Crusted Cod with Asparagus & Rice',
+      bullets: ['6 oz baked white fish or cod fillet', '1/2 cup jasmine or brown rice', 'Steamed asparagus spears with lemon zest'],
+      benefit: 'Lean, easily digestible protein ideal for high sleep quality.',
+    },
+    snack: {
+      title: 'Crisp Apple & Natural Almond Butter',
+      bullets: ['1 crisp gala apple sliced', '1.5 tbsp creamy natural almond butter'],
+      benefit: 'Balanced natural fiber and steady energy release.',
+    },
+  };
+
+  const selected = mealPresets[type] || mealPresets.lunch;
+  return {
+    content: `# ${selected.title}\n${selected.bullets.map((b) => `- ${b}`).join('\n')}\n\n**Key Benefit:** ${selected.benefit}`,
+    calories: target,
+  };
+}
+
+function getClientFallbackVoiceMeal(transcription: string) {
+  const text = (transcription || '').toLowerCase();
+  const calMatch = text.match(/(\d+)\s*(?:calories|calorie|cals|cal|kcal)/i);
+  let calories = calMatch ? parseInt(calMatch[1], 10) : 0;
+
+  const isQuestion = text.includes('?') || text.startsWith('how') || text.startsWith('what') || text.startsWith('should') || text.startsWith('can i');
+
+  if (isQuestion) {
+    return {
+      intent: 'advice' as const,
+      response: 'To reach your fitness goals, focus on balancing lean protein, complex carbs, and lots of vegetables. Prioritize hydration and consistent sleep to support recovery!',
+      mealName: null,
+      calories: 0,
+      analysis: 'Nutrition guidance provided.',
+    };
   }
 
-  // Handle Safety blocks
-  if (message.includes("SAFETY")) {
-    throw new Error("The AI could not process this content due to safety filters. Please try another image or text.");
+  if (!calories) {
+    if (text.includes('salad')) calories = 250;
+    else if (text.includes('egg') || text.includes('toast')) calories = 300;
+    else if (text.includes('chicken') || text.includes('rice')) calories = 450;
+    else if (text.includes('burger') || text.includes('pizza')) calories = 650;
+    else if (text.includes('shake') || text.includes('smoothie')) calories = 280;
+    else calories = 400;
   }
-  
-  // Handle 404 Missing Model
-  if (message.includes("404") || message.includes("NOT_FOUND")) {
-    throw new Error("The AI model requested is currently unavailable. Please try again.");
-  }
-  
-  throw new Error(message || "An unexpected AI error occurred. Please try again later.");
-};
+
+  let mealName = transcription.trim();
+  if (mealName.length > 50) mealName = mealName.slice(0, 47) + '...';
+
+  return {
+    intent: 'log' as const,
+    response: `Logged "${mealName}" (~${calories} kcal). Keep up the great logging habit!`,
+    mealName: mealName || 'Logged Meal',
+    calories,
+    analysis: 'Estimated from note. Tap to adjust details anytime.',
+  };
+}
 
 // Generic Server-First API fetcher with graceful fallback
 async function callServerApi<T>(endpoint: string, body: any): Promise<T | null> {
@@ -242,57 +385,83 @@ RULES:
 };
 
 // 2. SUGGEST WORKOUT
-export const suggestWorkout = async (remainingMinutes: number, profile: UserProfile | null, focusArea?: string) => {
+export const suggestWorkout = async (
+  remainingMinutes: number, 
+  profile: UserProfile | null, 
+  focusArea?: string,
+  environment?: WorkoutEnvironment
+) => {
+  const activeEnv = (environment || profile?.workoutEnvironment || 'home').toLowerCase() as WorkoutEnvironment;
+  const isGym = activeEnv === 'gym';
+  const targetArea = focusArea || 'Full Body';
+
   const serverResult = await callServerApi<{ text: string }>(
     '/api/gemini/suggest-workout',
-    { remainingMinutes, profile, focusArea }
+    { remainingMinutes, profile, focusArea: targetArea, environment: activeEnv }
   );
 
   if (serverResult && serverResult.text) {
     return serverResult.text;
   }
 
-  const envText = profile ? `They prefer to workout at ${profile.workoutEnvironment || 'anywhere'}.` : '';
-  const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'} and they have a ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'} activity level. They are located in ${profile.location || 'Home'}. ${envText}` : '';
-  const focusText = focusArea ? `The user wants to FOCUS on: ${focusArea}.` : '';
+  const envInstructions = isGym
+    ? `WORKOUT LOCATION: GYM. Recommend exercises utilizing commercial gym equipment (dumbbells, barbells, cable machines, benches, weight machines) with recommended sets and reps.`
+    : `WORKOUT LOCATION: HOME. Strictly recommend exercises that can be performed at home with bodyweight, calisthenics, or minimal household items. DO NOT suggest gym machines or heavy barbells.`;
+
+  const goalText = profile 
+    ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'} and they have a ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'} activity level. Location: ${profile.location || 'Home'}.`
+    : '';
   
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: `The user needs to complete ${remainingMinutes} more minutes of exercise today. ${goalText} ${focusText}
-Suggest a specific, effective workout activity tailored to their goal, location, and preferred environment (${profile?.workoutEnvironment || 'anywhere'}). 
-If a focus area is provided, the exercises MUST primarily target that area.
+      model: 'gemini-3.1-flash-lite',
+      contents: `The user needs a ${remainingMinutes || 20}-minute ${targetArea} workout.
+${goalText}
+${envInstructions}
+Target Muscle Focus: ${targetArea}
+
+Tailor the volume, intensity, and exercise selection strictly to their goal (${profile?.goal || 'fitness'}) and the ${isGym ? 'GYM' : 'HOME'} environment.
 
 Format the response using Markdown:
-- Start with a catchy # Heading
+- Start with an inspiring # Heading (e.g. # 🏋️ ${remainingMinutes || 20}-Min Gym ${targetArea} Session or # 🏠 ${remainingMinutes || 20}-Min Home ${targetArea} Circuit)
 - Use ## Subheadings for sections
-- Provide 2-3 brief bullet points on the benefits
-- List the exercises clearly.
-- CRITICAL: For EVERY exercise suggested, include a link to search for it on YouTube. 
-  Format as: [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+[exercise+name])
-- Include a 'Pro-tip' for form in a blockquote or bold text
+- ## Overview: 2-3 brief bullet points on the benefits and equipment
+- ## Workout Routine (${remainingMinutes || 20} mins):
+  Warm-up, Core workout with reps/sets, and Cool-down.
+- CRITICAL: For EVERY exercise suggested, include a link to search for it on YouTube:
+  [📺 Watch Tutorial](https://www.youtube.com/results?search_query=how+to+do+[exercise+name])
+- Include a bold > **Pro-tip:** for form and safety in ${activeEnv}.
 - Keep it motivating and punchy.`,
       config: {
         temperature: 0.8,
       },
     });
-    return response.text;
+    return response.text || getClientFallbackWorkout(remainingMinutes, profile, targetArea, activeEnv);
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client suggestWorkout fallback:", err);
+    return getClientFallbackWorkout(remainingMinutes, profile, targetArea, activeEnv);
   }
 };
 
 // 3. RECOMMEND FOCUS AREA
 export const recommendFocusArea = async (profile: UserProfile | null, stats: DailyStats, foodHistory: FoodLogEntry[]) => {
   if (!profile) return { area: "Full Body", reason: "Let's keep it moving with a total body session." };
+
+  const serverResult = await callServerApi<{ area: string; reason: string }>(
+    '/api/gemini/recommend-focus-area',
+    { profile, stats, foodHistory }
+  );
+  if (serverResult && serverResult.area) {
+    return serverResult;
+  }
   
   const goalText = `Goal: ${profile.goal ? profile.goal.replace('_', ' ') : 'fitness'}. Weight: ${profile.weight}lbs. History: ${foodHistory.length} meals logged.`;
   
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `Based on the following data:
 ${goalText}
 Current Day Progress: ${stats.calories}/${stats.caloriesGoal} kcal, ${stats.exercise}/${stats.exerciseGoal} mins exercise.
@@ -315,7 +484,7 @@ Format your response as a JSON object:
     
     return cleanAndParseJson(response.text, { area: "Full Body", reason: "Total body workout for overall fitness!" });
   } catch (err) {
-    console.error("Focus area recommendation fallback", err);
+    console.warn("Focus area recommendation fallback", err);
     return { area: "Full Body", reason: "Let's keep it moving with a total body session." };
   }
 };
@@ -338,7 +507,7 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a total daily goal of ${totalDailyGoal} kcal. ${goalText} ${prepText}
 Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack. 
 
@@ -355,9 +524,10 @@ Each value should be an object with 'content' (Markdown string) and 'calories' (
       },
     });
 
-    return cleanAndParseJson(response.text, null);
+    return cleanAndParseJson(response.text, getClientFallbackDailyMeals(remainingCalories));
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client suggestDailyMeals fallback:", err);
+    return getClientFallbackDailyMeals(remainingCalories);
   }
 };
 
@@ -384,7 +554,7 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a ${totalDailyGoal} kcal goal.
 Suggest a healthy ${mealType} that is around ${Math.round(targetCalories)} kcal. 
 ${goalText} 
@@ -399,9 +569,10 @@ Format the response as a JSON object:
       },
     });
 
-    return cleanAndParseJson(response.text, null);
+    return cleanAndParseJson(response.text, getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal));
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client suggestMeal fallback:", err);
+    return getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal);
   }
 };
 
@@ -424,7 +595,7 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `The user is a ${profile.age} year old ${profile.gender} with a goal to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}. 
 Current stats: Weight: ${profile.weight}lbs, Height: ${profile.height}cm, Activity Level: ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'}.
 Location: ${profile.location || 'Global'}.
@@ -440,7 +611,8 @@ Format using Markdown: bulleted list with emojis, bold text for key actions.`,
     });
     return response.text;
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client goal steps fallback:", err);
+    return `### 🎯 Your Top 3 Next Steps Today\n\n1. **Hydration First 💧**\nDrink a large glass of water now to sustain your energy.\n\n2. **Active Move 🏃‍♂️**\nHit a 15-minute brisk walk or quick bodyweight set.\n\n3. **Balanced Fuel 🥗**\nFocus your next meal on high-protein, fibrous whole foods!`;
   }
 };
 
@@ -458,15 +630,16 @@ export const generateCheer = async (postContent: string) => {
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `A fitness community member just posted: "${postContent}". Write a short, highly enthusiastic, and personalized supportive comment (max 15 words) that would make them feel like a champion. Use 1 relevant emoji.`,
       config: {
         temperature: 0.9,
       },
     });
-    return response.text;
+    return response.text || "Keep up the fantastic momentum, you're crushing your fitness goals! 🔥";
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client cheer fallback:", err);
+    return "Keep up the fantastic momentum, you're crushing your fitness goals! 🔥";
   }
 };
 
@@ -495,7 +668,7 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: `The user said: "${transcription}". 
 Evaluate the user's intent. They might be:
 1. Logging a meal (e.g., "I just had a burger and fries").
@@ -527,15 +700,10 @@ Return a JSON object:
       },
     });
 
-    return cleanAndParseJson(response.text, {
-      intent: "advice",
-      response: "Got your message! How can I help you stay on track with your fitness goals today?",
-      mealName: null,
-      calories: 0,
-      analysis: "Voice note received.",
-    });
+    return cleanAndParseJson(response.text, getClientFallbackVoiceMeal(transcription));
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client voice meal fallback:", err);
+    return getClientFallbackVoiceMeal(transcription);
   }
 };
 
@@ -561,7 +729,7 @@ export const analyzeBuffet = async (base64Data: string, remainingCalories: numbe
   try {
     const ai = getClientAi();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: {
         parts: [
           {
@@ -590,11 +758,16 @@ Return a JSON object:
     });
 
     return cleanAndParseJson(response.text, {
-      advice: "Scan completed. Pick lean proteins and plenty of fresh vegetables!",
+      advice: "Scan completed. Fill half your plate with colorful veggies and choose lean grilled proteins!",
       estimatedCalories: Math.min(500, remainingCalories),
       isFood: true,
     });
   } catch (err) {
-    handleGenAIError(err);
+    console.warn("Client buffet scan fallback:", err);
+    return {
+      advice: "Scan completed. Focus on lean protein options (chicken, fish, eggs, tofu) and fresh fiber-rich vegetables to stay within your calorie limit!",
+      estimatedCalories: Math.min(500, remainingCalories),
+      isFood: true,
+    };
   }
 };

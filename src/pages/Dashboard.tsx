@@ -38,9 +38,10 @@ interface Props {
   maxDailyScans: number;
   incrementAiUsage: () => Promise<boolean>;
   onUpgrade: () => void;
+  onUpdateProfile?: (updatedProfile: Partial<UserProfile>) => void;
 }
 
-const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage, onUpgrade }) => {
+const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage, onUpgrade, onUpdateProfile }) => {
   const [aiCoachTip, setAiCoachTip] = useState<string>(userProfile?.lastAiTip || "Generating your personalized morning brief...");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
@@ -107,7 +108,12 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       await setDoc(userDocRef, { 
         preloadedMeals: mealResults,
         preloadedWorkout: workoutResult,
-        lastMealPreloadTimestamp: new Date().toISOString()
+        preloadedWorkouts: {
+          ...(userProfile.preloadedWorkouts || {}),
+          'Full Body': workoutResult,
+        },
+        lastMealPreloadTimestamp: new Date().toISOString(),
+        lastWorkoutPreloadTimestamp: new Date().toISOString(),
       }, { merge: true });
     } catch (error) {
       console.error("Failed to preload meals", error);
@@ -255,8 +261,14 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   };
 
   const handleSuggestExercise = async () => {
-    if (userProfile?.preloadedWorkout) {
-      setAiModalContent({ title: "Quick Workout Idea", content: userProfile.preloadedWorkout, isLoading: false });
+    const isToday = (dateStr?: string) => {
+      if (!dateStr) return false;
+      return new Date(dateStr).toDateString() === new Date().toDateString();
+    };
+
+    const cachedFullBody = userProfile?.preloadedWorkouts?.['Full Body'] || userProfile?.preloadedWorkout;
+    if (cachedFullBody && (isToday(userProfile?.lastWorkoutPreloadTimestamp) || isToday(userProfile?.lastMealPreloadTimestamp))) {
+      setAiModalContent({ title: "Quick Workout Idea", content: cachedFullBody, isLoading: false });
       return;
     }
 
@@ -273,7 +285,11 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
         const userDocRef = doc(db, 'users', auth.currentUser.uid);
         await setDoc(userDocRef, { 
           preloadedWorkout: result,
-          lastMealPreloadTimestamp: new Date().toISOString()
+          preloadedWorkouts: {
+            ...(userProfile?.preloadedWorkouts || {}),
+            'Full Body': result,
+          },
+          lastWorkoutPreloadTimestamp: new Date().toISOString()
         }, { merge: true });
       }
 
@@ -640,6 +656,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
           userProfile={userProfile}
           foodLog={foodLog}
           onShowResult={(title, content) => setAiModalContent({ title, content, isLoading: false })}
+          onUpdateProfile={onUpdateProfile}
         />
       </div>
 

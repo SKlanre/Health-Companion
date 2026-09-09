@@ -304,6 +304,9 @@ const App: React.FC = () => {
           lastAiTipTimestamp: data.lastAiTipTimestamp,
           preloadedMeals: data.preloadedMeals,
           preloadedWorkout: data.preloadedWorkout,
+          preloadedWorkouts: data.preloadedWorkouts,
+          lastWorkoutPreloadTimestamp: data.lastWorkoutPreloadTimestamp,
+          preloadedFocusAreaRecommendation: data.preloadedFocusAreaRecommendation,
           lastMealPreloadTimestamp: data.lastMealPreloadTimestamp,
           darkMode: data.darkMode,
           targetWeight: data.targetWeight
@@ -1097,6 +1100,20 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateProfile = async (updated: Partial<UserProfile>) => {
+    if (!userProfile) return;
+    const newProfile: UserProfile = { ...userProfile, ...updated };
+    setUserProfile(newProfile);
+    if (user) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, updated, { merge: true });
+      } catch (e) {
+        console.error("Failed to update profile", e);
+      }
+    }
+  };
+
   const handleUpgrade = async () => {
     if (!user) {
       showNotification("Please sign in to upgrade", 'error');
@@ -1159,6 +1176,7 @@ const App: React.FC = () => {
           maxDailyScans={MAX_DAILY_SCANS}
           incrementAiUsage={incrementAiUsage}
           onUpgrade={handleUpgrade}
+          onUpdateProfile={handleUpdateProfile}
         />;
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;
@@ -1192,6 +1210,7 @@ const App: React.FC = () => {
           maxDailyScans={MAX_DAILY_SCANS}
           incrementAiUsage={incrementAiUsage}
           onUpgrade={handleUpgrade}
+          onUpdateProfile={handleUpdateProfile}
         />;
     }
   };
