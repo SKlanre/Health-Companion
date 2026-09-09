@@ -941,26 +941,26 @@ const App: React.FC = () => {
             analysis: result.analysis || ""
           });
           if ((result as any).wasFallback) {
-            showNotification("AI is experiencing high traffic — initial estimate provided. Tap to adjust calories anytime!", "info");
+            showNotification("AI scanner offline or busy — please tap to enter calories manually.", "info");
           }
         } else {
           setPendingFood({
             isFood: true,
             name: "Meal Photo Logged",
-            calories: 400,
-            analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
+            calories: 0,
+            analysis: "Image captured. Please tap to enter meal name and calories."
           });
-          showNotification("Estimated values loaded. You can adjust name and calories directly.", "info");
+          showNotification("Please tap to enter meal name and calories.", "info");
         }
       } catch (err: any) {
         console.error("Scanning error:", err);
         setPendingFood({
           isFood: true,
           name: "Meal Photo Logged",
-          calories: 400,
-          analysis: "Image captured. You can adjust the meal name and calorie count to match your plate."
+          calories: 0,
+          analysis: "Image captured. Please tap to enter meal name and calories."
         });
-        showNotification("Initial estimate provided. Tap to adjust meal details!", "info");
+        showNotification("Please tap to enter meal name and calories.", "info");
       }
     } catch (procErr: any) {
       console.error("Image processing error on iPhone/mobile:", procErr);

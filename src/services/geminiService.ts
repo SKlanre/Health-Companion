@@ -316,12 +316,12 @@ RULES:
   try {
     const key = getClientApiKey();
     if (!key) {
-      // If client key is not set and server was unreachable, provide graceful fallback
+      // If client key is not set and server was unreachable, prompt for manual calorie entry
       return {
         isFood: true,
-        name: "Meal Photo Logged",
-        calories: 420,
-        analysis: "Image captured successfully. You can adjust the calorie count and meal name below.",
+        name: additionalDetails ? `Meal (${additionalDetails.slice(0, 30)})` : "Meal Photo Logged",
+        calories: 0,
+        analysis: "AI scanning backend is currently unreachable. Please tap to enter the meal name and calorie estimate manually.",
         wasFallback: true,
       };
     }
@@ -352,9 +352,9 @@ RULES:
       console.warn("Client AI food scan rate-limited or error:", e);
       return {
         isFood: true,
-        name: "Meal Photo Logged",
-        calories: 420,
-        analysis: "AI traffic is currently high. Baseline nutrition estimated (~420 kcal). You can edit details anytime.",
+        name: additionalDetails ? `Meal (${additionalDetails.slice(0, 30)})` : "Meal Photo Logged",
+        calories: 0,
+        analysis: "AI scan could not complete automatically. Please enter your meal name and calories manually.",
         wasFallback: true,
       };
     }
@@ -376,9 +376,9 @@ RULES:
     console.warn("Returning resilient food scan fallback:", err);
     return {
       isFood: true,
-      name: "Meal Photo Logged",
-      calories: 400,
-      analysis: "Photo saved! You can adjust the meal name and calorie count to match your plate.",
+      name: additionalDetails ? `Meal (${additionalDetails.slice(0, 30)})` : "Meal Photo Logged",
+      calories: 0,
+      analysis: "Photo saved. Please tap to enter your meal name and calorie estimate.",
       wasFallback: true,
     };
   }

@@ -14,9 +14,9 @@ const __dirname = path.dirname(__filename);
 // Gemini Client initialization helper
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured on the server. Please check Settings > Secrets.');
+    throw new Error('GEMINI_API_KEY is not configured on the server. Please check Settings > Secrets or Vercel Environment Variables.');
   }
   if (!geminiClient) {
     geminiClient = new GoogleGenAI({
@@ -320,17 +320,24 @@ function generateFallbackVoiceMeal(transcription: string) {
   };
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+export const app = express();
+const PORT = 3000;
 
-  app.use(cors());
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // ==========================================
-  // GEMINI AI SERVER ENDPOINTS
-  // ==========================================
+// URL normalization middleware to seamlessly support both /api/foo and /foo on Vercel
+app.use((req, _res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
+// ==========================================
+// GEMINI AI SERVER ENDPOINTS
+// ==========================================
 
   // 1. Scan Food Photo
   app.post('/api/gemini/scan-food', async (req, res) => {
@@ -403,9 +410,9 @@ RULES:
         console.warn('Gemini vision models exhausted or rate-limited, returning resilient food estimate fallback:', err3);
         return res.json({
           isFood: true,
-          name: additionalDetails ? `Meal (${additionalDetails.slice(0, 25)})` : 'Healthy Meal (Estimated)',
-          calories: 420,
-          analysis: 'AI scan is momentarily under high demand. Baseline nutrition estimated (~420 kcal). Tap to adjust calories or details anytime!',
+          name: additionalDetails ? `Meal (${additionalDetails.slice(0, 25)})` : 'Meal Photo Logged',
+          calories: 0,
+          analysis: 'AI vision scan is momentarily under high demand. Please enter or adjust your calories manually.',
           wasFallback: true,
         });
       }
@@ -963,6 +970,7 @@ Format using Markdown: bulleted list with emojis, bold text for key actions.`;
     res.json({ status: 'ok', timestamp: new Date() });
   });
 
+export async function startServer() {
   // Vite Integration
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -984,5 +992,12 @@ Format using Markdown: bulleted list with emojis, bold text for key actions.`;
   });
 }
 
-startServer();
+// Automatically start standalone server in local and container environments (not in Vercel serverless)
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Server startup error:', err);
+  });
+}
+
+export default app;
 
