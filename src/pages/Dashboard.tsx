@@ -42,8 +42,25 @@ interface Props {
   onUpdateProfile?: (updatedProfile: Partial<UserProfile>) => void;
 }
 
+const getTimePeriod = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'afternoon';
+  return 'evening';
+};
+
+const getInitialMealType = (): string => {
+  const hour = new Date().getHours();
+  if (hour >= 4 && hour < 11) return 'breakfast';
+  if (hour >= 11 && hour < 16) return 'lunch';
+  if (hour >= 16 && hour < 21) return 'dinner';
+  return 'snacks';
+};
+
 const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage, onUpgrade, onUpdateProfile }) => {
-  const [aiCoachTip, setAiCoachTip] = useState<string>(userProfile?.lastAiTip || "Generating your personalized morning brief...");
+  const [aiCoachTip, setAiCoachTip] = useState<string>(
+    userProfile?.lastAiTip || `Generating your personalized ${getTimePeriod()} brief...`
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
   const [aiModalContent, setAiModalContent] = useState<{ title: string; content: string; isLoading?: boolean } | null>(null);
@@ -54,7 +71,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   const [manualValue, setManualValue] = useState("");
   const [entryMode, setEntryMode] = useState<'choice' | 'manual'>('choice');
   const [adjustmentType, setAdjustmentType] = useState<'set' | 'add' | 'sub'>('set');
-  const [selectedMealType, setSelectedMealType] = useState('breakfast');
+  const [selectedMealType, setSelectedMealType] = useState(getInitialMealType);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const lastProcessedFoodCount = useRef(foodLog.length);
 
@@ -144,6 +161,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     // For calories, we show a choice first. For others, go straight to manual.
     if (key === 'calories') {
       setEntryMode('choice');
+      setSelectedMealType(getInitialMealType());
     } else {
       setEntryMode('manual');
     }
@@ -507,7 +525,7 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       {/* Main Metrics (Grid) */}
       {/* Premium Upgrade Card */}
       {userProfile?.tier !== 'premium' && (() => {
-        const currencyInfo = getCurrencyForLocation(userProfile?.location || "");
+        const currencyInfo = getCurrencyForLocation(userProfile?.location || "", userProfile?.currency);
         return (
           <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[32px] p-6 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden group">
             <div className="absolute top-0 right-0 -m-4 w-32 h-32 bg-white/10 rounded-full blur-2xl transition-all duration-700" />

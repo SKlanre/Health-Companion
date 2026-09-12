@@ -17,6 +17,7 @@
         "mealPrepStyle": { "type": "string", "enum": ["self", "others", "eat_out"], "description": "How the user gets their meals" },
         "fruitConsumption": { "type": "string", "enum": ["rarely", "sometimes", "daily"], "description": "How often the user eats fruits" },
         "dailyBudget": { "type": "number", "description": "User's daily meal budget" },
+        "currency": { "type": "string", "description": "Preferred currency code (e.g. USD, NGN, GBP, EUR, GHS, CAD, etc.)" },
         "targetWeight": { "type": "number", "description": "User's target weight" },
         "streak": { "type": "number", "description": "Consecutive days of activity" },
         "lastActivityDate": { "type": "string", "description": "Last date the user performed an activity (YYYY-MM-DD)" },
@@ -66,6 +67,9 @@
         "preloadedFocusAreaRecommendation": { "type": "object" },
         "lastMealPreloadTimestamp": { "type": "string" },
         "darkMode": { "type": "boolean" },
+        "notificationSettings": { "type": "object", "description": "Goal celebrations and reminder notification preferences" },
+        "privacySettings": { "type": "object", "description": "Privacy and social visibility preferences" },
+        "appPreferences": { "type": "object", "description": "App appearance, units, and general UI preferences" },
         "stats": {
           "type": "object",
           "properties": {

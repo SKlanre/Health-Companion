@@ -1,18 +1,30 @@
 
 import React, { useState } from 'react';
-import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle, Edit3, UserPlus, LogIn } from 'lucide-react';
-import { UserProfile, DailyHistoryEntry, DailyStats } from '../types';
+import { User, Settings, Bell, Shield, Heart, HelpCircle, LogOut, ChevronRight, Scale, Ruler, Activity, Target, MapPin, Zap, Moon, Sun, RefreshCw, AlertCircle, Edit3, UserPlus, LogIn, Wallet, Coins } from 'lucide-react';
+import { UserProfile, DailyHistoryEntry, DailyStats, NotificationSettings, PrivacySettings, AppPreferences, UnitSystem, FoodLogEntry, GoalAlertEvent } from '../types';
 import { auth, db, doc, setDoc, handleFirestoreError, OperationType } from '../firebase';
 import EditProfile from '../components/EditProfile';
+import { CurrencyModal } from '../components/CurrencyModal';
+import { NotificationSettingsModal } from '../components/NotificationSettingsModal';
+import { PrivacySettingsModal } from '../components/PrivacySettingsModal';
+import { AppSettingsModal } from '../components/AppSettingsModal';
 import { BrandLogo } from '../components/BrandLogo';
+import { getCurrencyForLocation, getUserCurrency } from '../lib/currencies';
 
 interface ProfileProps {
   profile: UserProfile | null;
   history?: DailyHistoryEntry[];
+  stats?: DailyStats | null;
+  foodLog?: FoodLogEntry[];
   isGuest?: boolean;
   onReset: () => void;
   onRestoreStats: () => Promise<boolean>;
   onUpdateFullProfile: (profile: UserProfile, stats: DailyStats) => Promise<void>;
+  onSaveNotificationSettings?: (settings: NotificationSettings) => Promise<void>;
+  onSavePrivacySettings?: (settings: PrivacySettings) => Promise<void>;
+  onSaveAppPreferences?: (prefs: AppPreferences, newUnitSystem?: UnitSystem) => Promise<void>;
+  onTriggerGoalAlert?: (alert: GoalAlertEvent) => void;
+  showNotification?: (message: string, type: 'error' | 'success' | 'info') => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onSignOut?: () => void;
@@ -22,10 +34,17 @@ interface ProfileProps {
 const Profile: React.FC<ProfileProps> = ({ 
   profile, 
   history, 
+  stats,
+  foodLog = [],
   isGuest,
   onReset, 
   onRestoreStats, 
   onUpdateFullProfile, 
+  onSaveNotificationSettings,
+  onSavePrivacySettings,
+  onSaveAppPreferences,
+  onTriggerGoalAlert,
+  showNotification,
   darkMode, 
   onToggleDarkMode,
   onSignOut,
@@ -34,8 +53,14 @@ const Profile: React.FC<ProfileProps> = ({
   const [isRestoring, setIsRestoring] = useState(false);
   const [showRestoreSuccess, setShowRestoreSuccess] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
+  const [isAppSettingsModalOpen, setIsAppSettingsModalOpen] = useState(false);
 
   if (!profile) return null;
+
+  const currentCurrency = getUserCurrency(profile);
 
   const handleSignOut = () => {
     if (onSignOut) {
@@ -147,6 +172,18 @@ const Profile: React.FC<ProfileProps> = ({
             : `${Math.floor(profile.height / 30.48)}'${Math.round((profile.height % 30.48) / 2.54)}"`} 
         />
         <ProfileStat icon={<Activity className="text-indigo-500" />} label="Activity" value={profile.activityLevel.replace('_', ' ')} />
+        <ProfileStat 
+          icon={<Wallet className="text-amber-500" />} 
+          label="Daily Budget" 
+          value={`${currentCurrency.symbol}${(profile.dailyBudget || currentCurrency.defaultDailyBudget).toLocaleString()}/day`} 
+        />
+        <ProfileStat 
+          icon={<Coins className="text-teal-500" />} 
+          label="Currency" 
+          value={`${currentCurrency.flag} ${currentCurrency.name} (${currentCurrency.symbol})`} 
+          onClick={() => setIsCurrencyModalOpen(true)}
+          badge="Change"
+        />
       </div>
 
       <div className="space-y-2">
@@ -196,6 +233,27 @@ const Profile: React.FC<ProfileProps> = ({
             ))}
           </div>
         </div>
+
+        {/* Currency Setting Row */}
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-50 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+              <Coins className="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <span className="text-sm font-bold text-gray-700 dark:text-slate-200 block">Currency</span>
+              <span className="text-xs text-gray-400 dark:text-slate-400">Meal pricing, recipes & food budget</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsCurrencyModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-xs font-black text-slate-800 dark:text-slate-100 transition-all border border-gray-200/60 dark:border-slate-700 shadow-sm active:scale-95"
+          >
+            <span className="text-base select-none">{currentCurrency.flag}</span>
+            <span>{currentCurrency.code} ({currentCurrency.symbol})</span>
+            <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+          </button>
+        </div>
         <MenuButton 
           icon={<Edit3 className="text-blue-500" />} 
           label="Edit Profile & Goals" 
@@ -222,9 +280,21 @@ const Profile: React.FC<ProfileProps> = ({
           </button>
         </div>
 
-        <MenuButton icon={<Bell className="text-amber-500" />} label="Notifications" />
-        <MenuButton icon={<Shield className="text-emerald-500" />} label="Privacy & Security" />
-        <MenuButton icon={<Settings className="text-gray-500" />} label="App Settings" />
+        <MenuButton 
+          icon={<Bell className="text-amber-500" />} 
+          label="Notifications & Goal Alerts" 
+          onClick={() => setIsNotificationModalOpen(true)}
+        />
+        <MenuButton 
+          icon={<Shield className="text-emerald-500" />} 
+          label="Privacy & Security" 
+          onClick={() => setIsPrivacyModalOpen(true)}
+        />
+        <MenuButton 
+          icon={<Settings className="text-gray-500" />} 
+          label="App Settings & Units" 
+          onClick={() => setIsAppSettingsModalOpen(true)}
+        />
       </div>
 
       {isGuest ? (
@@ -279,17 +349,90 @@ const Profile: React.FC<ProfileProps> = ({
         onClose={() => setIsEditModalOpen(false)}
         onSave={onUpdateFullProfile}
       />
+
+      <CurrencyModal
+        isOpen={isCurrencyModalOpen}
+        onClose={() => setIsCurrencyModalOpen(false)}
+        profile={profile}
+        onCurrencyUpdated={async (newCurrency, newBudget) => {
+          if (auth.currentUser) {
+            try {
+              const userDocRef = doc(db, 'users', auth.currentUser.uid);
+              const updates: any = { currency: newCurrency.code };
+              if (newBudget !== undefined) {
+                updates.dailyBudget = newBudget;
+              }
+              await setDoc(userDocRef, updates, { merge: true });
+            } catch (err) {
+              console.error('Failed to update currency:', err);
+            }
+          }
+        }}
+      />
+
+      <NotificationSettingsModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        profile={profile}
+        onSaveNotificationSettings={onSaveNotificationSettings || (async () => {})}
+        onTriggerGoalAlert={onTriggerGoalAlert}
+      />
+
+      <PrivacySettingsModal
+        isOpen={isPrivacyModalOpen}
+        onClose={() => setIsPrivacyModalOpen(false)}
+        profile={profile}
+        stats={stats}
+        foodLog={foodLog}
+        onSavePrivacySettings={onSavePrivacySettings || (async () => {})}
+        onSignOut={onSignOut}
+        showNotification={showNotification}
+      />
+
+      <AppSettingsModal
+        isOpen={isAppSettingsModalOpen}
+        onClose={() => setIsAppSettingsModalOpen(false)}
+        profile={profile}
+        isDarkMode={darkMode}
+        onToggleDarkMode={onToggleDarkMode}
+        onSaveAppPreferences={onSaveAppPreferences || (async () => {})}
+        showNotification={showNotification}
+      />
     </div>
   );
 };
 
-const ProfileStat = ({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) => (
-  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-gray-50 dark:border-slate-800 shadow-sm">
-    <div className="flex items-center gap-2 mb-1">
-      {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' }) : icon}
-      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</span>
+const ProfileStat = ({ 
+  icon, 
+  label, 
+  value,
+  onClick,
+  badge
+}: { 
+  icon: React.ReactNode; 
+  label: string; 
+  value: string;
+  onClick?: () => void;
+  badge?: string;
+}) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white dark:bg-slate-900 p-4 rounded-3xl border border-gray-50 dark:border-slate-800 shadow-sm transition-all ${
+      onClick ? 'cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700/60 active:scale-98 group' : ''
+    }`}
+  >
+    <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center gap-2">
+        {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' }) : icon}
+        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</span>
+      </div>
+      {badge && (
+        <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded-md group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+          {badge}
+        </span>
+      )}
     </div>
-    <div className="text-lg font-black text-gray-900 dark:text-white capitalize">{value}</div>
+    <div className="text-lg font-black text-gray-900 dark:text-white capitalize truncate">{value}</div>
   </div>
 );
 

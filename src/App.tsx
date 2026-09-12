@@ -27,7 +27,8 @@ import {
   Eye,
   EyeOff,
   UserPlus,
-  LogOut
+  LogOut,
+  Bell
 } from 'lucide-react';
 import FoodAssistant from './components/FoodAssistant';
 import Community from './pages/Community';
@@ -35,9 +36,12 @@ import Progress from './pages/Progress';
 import Profile from './pages/Profile';
 import Onboarding from './components/Onboarding';
 import { BrandLogo } from './components/BrandLogo';
-import { Tab, DailyStats, FoodLogEntry, WorkoutEntry, UserProfile, DailyHistoryEntry } from './types';
+import { Tab, DailyStats, FoodLogEntry, WorkoutEntry, UserProfile, DailyHistoryEntry, NotificationSettings, PrivacySettings, AppPreferences, UnitSystem, GoalAlertEvent } from './types';
 import { scanFoodImage } from './services/geminiService';
 import { processImageForScanning } from './lib/imageProcessor';
+import { evaluateGoalMilestones, dispatchGoalCelebration, DEFAULT_NOTIFICATION_SETTINGS, getSavedGoalAlerts } from './lib/notifications';
+import { GoalCelebrationToast } from './components/GoalCelebrationToast';
+import { NotificationSettingsModal } from './components/NotificationSettingsModal';
 import { 
   auth, 
   db, 
@@ -105,6 +109,11 @@ const App: React.FC = () => {
   const [additionalDetails, setAdditionalDetails] = useState("");
   const [isRefining, setIsRefining] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [activeGoalAlert, setActiveGoalAlert] = useState<GoalAlertEvent | null>(null);
+  const [isHeaderNotifOpen, setIsHeaderNotifOpen] = useState(false);
+  const [unreadAlertCount, setUnreadAlertCount] = useState<number>(() => {
+    return getSavedGoalAlerts().filter(a => !a.read).length;
+  });
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -210,6 +219,38 @@ const App: React.FC = () => {
     return `${year}-${month}-${day}`;
   };
 
+  // Dynamic time-of-day greeting helper (Morning: 5am-12pm, Afternoon: 12pm-5pm, Evening: 5pm-5am)
+  const getTimeGreeting = (): string => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+      return 'Good morning,';
+    } else if (hour >= 12 && hour < 17) {
+      return 'Good afternoon,';
+    } else {
+      return 'Good evening,';
+    }
+  };
+
+  const [greeting, setGreeting] = useState<string>(getTimeGreeting);
+
+  useEffect(() => {
+    const updateGreeting = () => {
+      setGreeting(getTimeGreeting());
+    };
+
+    updateGreeting();
+    // Update every minute to catch time transitions seamlessly
+    const interval = setInterval(updateGreeting, 60000);
+    window.addEventListener('focus', updateGreeting);
+    document.addEventListener('visibilitychange', updateGreeting);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', updateGreeting);
+      document.removeEventListener('visibilitychange', updateGreeting);
+    };
+  }, []);
+
   // Firestore Sync
   useEffect(() => {
     if (!user || !isAuthReady) return;
@@ -306,9 +347,17 @@ const App: React.FC = () => {
           preloadedFocusAreaRecommendation: data.preloadedFocusAreaRecommendation,
           lastMealPreloadTimestamp: data.lastMealPreloadTimestamp,
           darkMode: data.darkMode,
-          targetWeight: data.targetWeight
+          targetWeight: data.targetWeight,
+          currency: data.currency,
+          notificationSettings: data.notificationSettings,
+          privacySettings: data.privacySettings,
+          appPreferences: data.appPreferences,
         });
-        if (data.darkMode !== undefined) {
+        if (data.appPreferences?.theme === 'dark' || (data.darkMode !== undefined && data.darkMode)) {
+          setDarkMode(true);
+        } else if (data.appPreferences?.theme === 'light') {
+          setDarkMode(false);
+        } else if (data.darkMode !== undefined) {
           setDarkMode(data.darkMode);
         }
         if (data.stats) {
@@ -632,6 +681,16 @@ const App: React.FC = () => {
       });
     }
 
+    // Check for goal milestones & trigger alerts
+    const goalAlerts = evaluateGoalMilestones(stats, newStats, userProfile);
+    if (goalAlerts.length > 0) {
+      const activeAlert = goalAlerts[0];
+      const notifSettings = userProfile?.notificationSettings || DEFAULT_NOTIFICATION_SETTINGS;
+      dispatchGoalCelebration(activeAlert, notifSettings);
+      setActiveGoalAlert(activeAlert);
+      setUnreadAlertCount(prev => prev + goalAlerts.length);
+    }
+
     if (!user.uid.startsWith('guest_local_')) {
       try {
         const userDocRef = doc(db, 'users', user.uid);
@@ -684,6 +743,16 @@ const App: React.FC = () => {
     const localEntry: FoodLogEntry = { id: `log_${Date.now()}`, name, calories, timestamp: new Date() };
     setFoodLog(prev => [localEntry, ...prev]);
 
+    // Check for goal milestones & trigger alerts (e.g. calorie goal met)
+    const goalAlerts = evaluateGoalMilestones(stats, newStats, userProfile);
+    if (goalAlerts.length > 0) {
+      const activeAlert = goalAlerts[0];
+      const notifSettings = userProfile?.notificationSettings || DEFAULT_NOTIFICATION_SETTINGS;
+      dispatchGoalCelebration(activeAlert, notifSettings);
+      setActiveGoalAlert(activeAlert);
+      setUnreadAlertCount(prev => prev + goalAlerts.length);
+    }
+
     if (!user.uid.startsWith('guest_local_')) {
       try {
         const foodLogsRef = collection(db, 'users', user.uid, 'foodLogs');
@@ -698,6 +767,56 @@ const App: React.FC = () => {
         }, { merge: true });
       } catch (error) {
         console.warn("Could not sync food log to Firestore:", error);
+      }
+    }
+  };
+
+  const handleSaveNotificationSettings = async (newSettings: NotificationSettings) => {
+    if (userProfile) {
+      setUserProfile({ ...userProfile, notificationSettings: newSettings });
+    }
+    if (user && !user.uid.startsWith('guest_local_')) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { notificationSettings: newSettings }, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync notification settings to Firestore:', err);
+      }
+    }
+  };
+
+  const handleSavePrivacySettings = async (newSettings: PrivacySettings) => {
+    if (userProfile) {
+      setUserProfile({ ...userProfile, privacySettings: newSettings });
+    }
+    if (user && !user.uid.startsWith('guest_local_')) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { privacySettings: newSettings }, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync privacy settings to Firestore:', err);
+      }
+    }
+  };
+
+  const handleSaveAppPreferences = async (newPrefs: AppPreferences, newUnitSystem?: UnitSystem) => {
+    if (userProfile) {
+      setUserProfile({ 
+        ...userProfile, 
+        appPreferences: newPrefs,
+        ...(newUnitSystem ? { unitSystem: newUnitSystem } : {})
+      });
+    }
+    if (user && !user.uid.startsWith('guest_local_')) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const updates: any = { appPreferences: newPrefs };
+        if (newUnitSystem) {
+          updates.unitSystem = newUnitSystem;
+        }
+        await setDoc(userDocRef, updates, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync app preferences to Firestore:', err);
       }
     }
   };
@@ -953,7 +1072,7 @@ const App: React.FC = () => {
       return;
     }
     try {
-      const currencyInfo = getCurrencyForLocation(userProfile?.location || "");
+      const currencyInfo = getCurrencyForLocation(userProfile?.location || "", userProfile?.currency);
       showNotification(`Redirecting to payment (${currencyInfo.symbol}${currencyInfo.amount})...`, 'success');
       await initializePayment(user.email || "", currencyInfo.amount, user.uid, currencyInfo.code);
     } catch (error) {
@@ -1019,6 +1138,8 @@ const App: React.FC = () => {
         return <Profile 
           profile={userProfile} 
           history={dailyHistory}
+          stats={stats}
+          foodLog={foodLog}
           isGuest={isGuest}
           onReset={() => {
             if (userProfile) {
@@ -1027,6 +1148,11 @@ const App: React.FC = () => {
           }} 
           onRestoreStats={handleRestoreStats}
           onUpdateFullProfile={handleUpdateFullProfile}
+          onSaveNotificationSettings={handleSaveNotificationSettings}
+          onSavePrivacySettings={handleSavePrivacySettings}
+          onSaveAppPreferences={handleSaveAppPreferences}
+          onTriggerGoalAlert={(alert) => setActiveGoalAlert(alert)}
+          showNotification={showNotification}
           darkMode={darkMode} 
           onToggleDarkMode={handleToggleDarkMode} 
           onSignOut={handleSignOut}
@@ -1290,7 +1416,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-1.5 mb-1">
-              <h2 className="text-[11px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none">Good morning,</h2>
+              <h2 className="text-[11px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none">{greeting}</h2>
               {isGuest && (
                 <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-black uppercase tracking-wider rounded-full border border-amber-200 dark:border-amber-800/60 leading-none">
                   Guest
@@ -1311,6 +1437,22 @@ const App: React.FC = () => {
               <span className="sm:hidden">Sign In</span>
             </button>
           )}
+          <button 
+            onClick={() => {
+              setIsHeaderNotifOpen(true);
+              setUnreadAlertCount(0);
+            }}
+            className="p-2.5 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 text-gray-600 dark:text-slate-400 hover:theme-text transition-colors relative"
+            title="Notifications & Goal Milestones"
+            aria-label="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadAlertCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white rounded-full text-[9px] font-black flex items-center justify-center shadow-sm animate-pulse">
+                {unreadAlertCount > 9 ? '9+' : unreadAlertCount}
+              </span>
+            )}
+          </button>
           <button className="p-2.5 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 text-gray-600 dark:text-slate-400 hover:theme-text transition-colors">
             <Search className="w-5 h-5" />
           </button>
@@ -1378,6 +1520,24 @@ const App: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Goal Celebration Toast */}
+      <GoalCelebrationToast
+        alert={activeGoalAlert}
+        onDismiss={() => setActiveGoalAlert(null)}
+      />
+
+      {/* Header Notification Center Modal */}
+      <NotificationSettingsModal
+        isOpen={isHeaderNotifOpen}
+        onClose={() => {
+          setIsHeaderNotifOpen(false);
+          setUnreadAlertCount(0);
+        }}
+        profile={userProfile}
+        onSaveNotificationSettings={handleSaveNotificationSettings}
+        onTriggerGoalAlert={(alert) => setActiveGoalAlert(alert)}
+      />
 
       {/* AI Scanning Overlay */}
       {isScanning && (

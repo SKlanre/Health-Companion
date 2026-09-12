@@ -11,13 +11,15 @@ import {
   Target, 
   Utensils, 
   Apple, 
-  Wallet,
-  Sparkles,
-  RefreshCw,
-  Heart,
-  AlertCircle
+  Wallet, 
+  Sparkles, 
+  RefreshCw, 
+  Heart, 
+  AlertCircle,
+  Coins
 } from 'lucide-react';
 import { UserProfile, ActivityLevel, FitnessGoal, Gender, MealPrepStyle, FruitConsumption, DailyStats } from '../types';
+import { getCurrencyForLocation, CURRENCY_DEFINITIONS, getUserCurrency } from '../lib/currencies';
 
 interface Props {
   profile: UserProfile;
@@ -169,9 +171,56 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
                     type="text" 
                     value={editedProfile.location}
                     onChange={(e) => setEditedProfile({...editedProfile, location: e.target.value})}
-                    placeholder="Location"
+                    placeholder="Location (e.g. Lagos, Nigeria)"
                     className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:border-indigo-500 focus:outline-none transition-all"
                    />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">
+                    Preferred Currency
+                  </label>
+                  <div className="relative">
+                    <Coins className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-amber-500" />
+                    <select
+                      value={editedProfile.currency || getCurrencyForLocation(editedProfile.location).code}
+                      onChange={(e) => {
+                        const newCode = e.target.value;
+                        const currInfo = CURRENCY_DEFINITIONS.find(c => c.code === newCode);
+                        setEditedProfile({
+                          ...editedProfile,
+                          currency: newCode,
+                          dailyBudget: currInfo ? currInfo.defaultDailyBudget : editedProfile.dailyBudget,
+                        });
+                      }}
+                      className="w-full pl-12 pr-10 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:border-indigo-500 focus:outline-none transition-all appearance-none"
+                    >
+                      {CURRENCY_DEFINITIONS.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.code} — {c.name} ({c.symbol})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(() => {
+                    const c = getCurrencyForLocation(editedProfile.location, editedProfile.currency);
+                    return (
+                      <div className="flex items-center justify-between px-3.5 py-2 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-300">
+                          <Coins className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>Active: <strong>{c.flag} {c.name} ({c.symbol} {c.code})</strong></span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditedProfile({ ...editedProfile, dailyBudget: c.defaultDailyBudget });
+                          }}
+                          className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 ml-2"
+                        >
+                          Reset Budget ({c.symbol}{c.defaultDailyBudget.toLocaleString()})
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
              </div>
           </div>
@@ -285,31 +334,51 @@ const EditProfile: React.FC<Props> = ({ profile, isOpen, onClose, onSave }) => {
 
           {/* Budget & Prep */}
           <div className="space-y-4">
-             <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">Life Style</label>
-             <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                   <Wallet className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-amber-300" />
-                   <input 
-                    type="number" 
-                    value={editedProfile.dailyBudget}
-                    onChange={(e) => setEditedProfile({...editedProfile, dailyBudget: parseInt(e.target.value)})}
-                    placeholder="Budget"
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
-                   />
-                </div>
-                <div className="relative">
-                   <Utensils className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-                   <select 
-                    value={editedProfile.mealPrepStyle}
-                    onChange={(e) => setEditedProfile({...editedProfile, mealPrepStyle: e.target.value as MealPrepStyle})}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-bold text-slate-800 dark:text-white appearance-none focus:outline-none"
-                   >
-                      <option value="self">I Cook</option>
-                      <option value="others">Family/Cook</option>
-                      <option value="eat_out">Eat Out</option>
-                   </select>
-                </div>
-             </div>
+             {(() => {
+               const c = getCurrencyForLocation(editedProfile.location, editedProfile.currency);
+               return (
+                 <>
+                   <div className="flex justify-between items-center ml-1">
+                     <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">
+                       Daily Meal Budget & Prep
+                     </label>
+                     <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                       <span>{c.flag}</span>
+                       <span>{c.name} ({c.symbol})</span>
+                     </span>
+                   </div>
+                   <div className="grid grid-cols-2 gap-3">
+                      <div className="relative">
+                         <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-base text-amber-500">
+                           {c.symbol}
+                         </span>
+                         <input 
+                          type="number" 
+                          value={editedProfile.dailyBudget || ''}
+                          onChange={(e) => setEditedProfile({...editedProfile, dailyBudget: parseInt(e.target.value) || 0})}
+                          placeholder={c.defaultDailyBudget.toString()}
+                          className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-bold text-slate-800 dark:text-white"
+                         />
+                      </div>
+                      <div className="relative">
+                         <Utensils className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                         <select 
+                          value={editedProfile.mealPrepStyle}
+                          onChange={(e) => setEditedProfile({...editedProfile, mealPrepStyle: e.target.value as MealPrepStyle})}
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 font-bold text-slate-800 dark:text-white appearance-none focus:outline-none"
+                         >
+                            <option value="self">I Cook</option>
+                            <option value="others">Family/Cook</option>
+                            <option value="eat_out">Eat Out</option>
+                         </select>
+                      </div>
+                   </div>
+                   <p className="text-[10px] text-slate-400 dark:text-slate-500 ml-1">
+                     Food recommendations and budget suggestions will be calculated in <strong>{c.name} ({c.symbol})</strong>.
+                   </p>
+                 </>
+               );
+             })()}
           </div>
 
           <button 

@@ -21,6 +21,8 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { UserProfile, DailyStats, ActivityLevel, FitnessGoal, Gender, MealPrepStyle, FruitConsumption } from '../types';
+import { getCurrencyForLocation } from '../lib/currencies';
+import { MapPin, Coins } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (profile: UserProfile, stats: DailyStats) => void;
@@ -174,6 +176,18 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
           </motion.div>
         );
       case 2:
+        const detectedCurr = getCurrencyForLocation(profile.location);
+        const popularLocations = [
+          { name: 'Nigeria', flag: '🇳🇬', location: 'Lagos, Nigeria' },
+          { name: 'Ghana', flag: '🇬🇭', location: 'Accra, Ghana' },
+          { name: 'United States', flag: '🇺🇸', location: 'New York, US' },
+          { name: 'United Kingdom', flag: '🇬🇧', location: 'London, UK' },
+          { name: 'Europe', flag: '🇪🇺', location: 'Berlin, Germany' },
+          { name: 'Canada', flag: '🇨🇦', location: 'Toronto, Canada' },
+          { name: 'Kenya', flag: '🇰🇪', location: 'Nairobi, Kenya' },
+          { name: 'South Africa', flag: '🇿🇦', location: 'Johannesburg, South Africa' },
+        ];
+
         return (
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -186,16 +200,75 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                 <Activity className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
               </div>
               <h2 className="text-3xl font-black text-gray-900 dark:text-white">Where are you located?</h2>
-              <p className="text-gray-500 dark:text-slate-400">This helps us recommend local foods and activities.</p>
+              <p className="text-gray-500 dark:text-slate-400">We will localize meal costs, ingredients, and currency for your country.</p>
             </div>
-            <input
-              type="text"
-              placeholder="e.g. Lagos, Nigeria"
-              className="w-full p-5 bg-white dark:bg-slate-900 border-2 border-gray-100 dark:border-slate-800 rounded-2xl text-xl font-bold text-slate-800 dark:text-white focus:border-indigo-500 focus:outline-none transition-all shadow-sm"
-              value={profile.location}
-              onChange={(e) => setProfile({ ...profile, location: e.target.value })}
-              autoFocus
-            />
+
+            <div className="space-y-4">
+              <div className="relative">
+                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-500" />
+                <input
+                  type="text"
+                  placeholder="e.g. Lagos, Nigeria or London, UK"
+                  className="w-full pl-12 pr-4 py-5 bg-white dark:bg-slate-900 border-2 border-gray-100 dark:border-slate-800 rounded-2xl text-xl font-bold text-slate-800 dark:text-white focus:border-indigo-500 focus:outline-none transition-all shadow-sm"
+                  value={profile.location}
+                  onChange={(e) => {
+                    const newLoc = e.target.value;
+                    const c = getCurrencyForLocation(newLoc);
+                    setProfile({ 
+                      ...profile, 
+                      location: newLoc,
+                      dailyBudget: c.defaultDailyBudget 
+                    });
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              {/* Detected currency badge */}
+              {profile.location.trim() && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-indigo-900 dark:text-indigo-300">
+                    <Coins className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Currency: <strong>{detectedCurr.name} ({detectedCurr.symbol} {detectedCurr.code})</strong></span>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Active</span>
+                </div>
+              )}
+
+              {/* Quick Select Popular Countries */}
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2">
+                  Quick Select Country
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {popularLocations.map((loc) => {
+                    const isSelected = profile.location.toLowerCase().includes(loc.name.toLowerCase());
+                    return (
+                      <button
+                        key={loc.name}
+                        type="button"
+                        onClick={() => {
+                          const c = getCurrencyForLocation(loc.location);
+                          setProfile({ 
+                            ...profile, 
+                            location: loc.location,
+                            dailyBudget: c.defaultDailyBudget 
+                          });
+                        }}
+                        className={`p-3 rounded-xl text-left font-bold text-xs flex items-center gap-2 border transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                            : 'bg-white dark:bg-slate-900 border-gray-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-indigo-300'
+                        }`}
+                      >
+                        <span className="text-base">{loc.flag}</span>
+                        <span className="truncate">{loc.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </motion.div>
         );
       case 3:
@@ -533,6 +606,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
           </motion.div>
         );
       case 9:
+        const curr = getCurrencyForLocation(profile.location);
+        const minBudget = curr.budgetRange.min;
+        const maxBudget = curr.budgetRange.max;
+        const stepBudget = curr.budgetRange.step;
+        const midBudget = Math.round((minBudget + maxBudget) / 2);
+
         return (
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -545,27 +624,62 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, initialProfile }) =
                 <Wallet className="w-10 h-10 text-amber-600 dark:text-amber-400" />
               </div>
               <h2 className="text-3xl font-black text-gray-900 dark:text-white">Daily Meal Budget</h2>
-              <p className="text-gray-500 dark:text-slate-400">How much do you typically spend on meals per day?</p>
+              <p className="text-gray-500 dark:text-slate-400">
+                How much do you typically spend on food per day in <strong>{curr.name}</strong>?
+              </p>
             </div>
             
             <div className="space-y-6">
               <div className="text-center">
-                <span className="text-5xl font-black text-amber-600 dark:text-amber-400">${profile.dailyBudget}</span>
-                <p className="text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Estimated daily spend</p>
+                <span className="text-5xl font-black text-amber-600 dark:text-amber-400">
+                  {curr.symbol}{profile.dailyBudget.toLocaleString()}
+                </span>
+                <p className="text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">
+                  Estimated daily spend in {curr.name} ({curr.code})
+                </p>
               </div>
+
               <input
                 type="range"
-                min="5"
-                max="200"
-                step="5"
+                min={minBudget}
+                max={maxBudget}
+                step={stepBudget}
                 className="w-full h-2 bg-gray-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-600"
                 value={profile.dailyBudget}
-                onChange={(e) => setProfile({ ...profile, dailyBudget: parseInt(e.target.value) })}
+                onChange={(e) => setProfile({ ...profile, dailyBudget: parseInt(e.target.value) || minBudget })}
               />
+
               <div className="flex justify-between text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">
-                <span>$5</span>
-                <span>$100</span>
-                <span>$200+</span>
+                <span>{curr.symbol}{minBudget.toLocaleString()}</span>
+                <span>{curr.symbol}{midBudget.toLocaleString()}</span>
+                <span>{curr.symbol}{maxBudget.toLocaleString()}+</span>
+              </div>
+
+              {/* Quick fine-tune inputs */}
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProfile({ 
+                    ...profile, 
+                    dailyBudget: Math.max(minBudget, profile.dailyBudget - stepBudget) 
+                  })}
+                  className="px-3 py-2 bg-gray-100 dark:bg-slate-800 rounded-xl font-black text-sm text-slate-700 dark:text-slate-300 hover:bg-gray-200 active:scale-95 transition-all"
+                >
+                  -{curr.symbol}{stepBudget >= 100 ? stepBudget.toLocaleString() : stepBudget}
+                </button>
+                <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 rounded-xl text-xs font-bold text-amber-800 dark:text-amber-300">
+                  {curr.symbol}{profile.dailyBudget.toLocaleString()} / day
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setProfile({ 
+                    ...profile, 
+                    dailyBudget: Math.min(maxBudget * 2, profile.dailyBudget + stepBudget) 
+                  })}
+                  className="px-3 py-2 bg-gray-100 dark:bg-slate-800 rounded-xl font-black text-sm text-slate-700 dark:text-slate-300 hover:bg-gray-200 active:scale-95 transition-all"
+                >
+                  +{curr.symbol}{stepBudget >= 100 ? stepBudget.toLocaleString() : stepBudget}
+                </button>
               </div>
             </div>
           </motion.div>

@@ -76,6 +76,7 @@ service cloud.firestore {
              (!('lastActivityDate' in data) || (data.lastActivityDate is string && data.lastActivityDate.matches("^\\d{4}-\\d{2}-\\d{2}$"))) &&
              (!('lastStatsResetDate' in data) || (data.lastStatsResetDate is string && data.lastStatsResetDate.matches("^\\d{4}-\\d{2}-\\d{2}$"))) &&
              data.onboarded is bool &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
              (!('lastAiTip' in data) || (data.lastAiTip is string && data.lastAiTip.size() < 5000)) &&
              (!('lastAiTipTimestamp' in data) || (data.lastAiTipTimestamp is string)) &&
              (!('preloadedMeals' in data) || (data.preloadedMeals is map)) &&
@@ -85,6 +86,9 @@ service cloud.firestore {
              (!('preloadedFocusAreaRecommendation' in data) || (data.preloadedFocusAreaRecommendation is map || data.preloadedFocusAreaRecommendation is string)) &&
              (!('lastMealPreloadTimestamp' in data) || (data.lastMealPreloadTimestamp is string)) &&
              (!('darkMode' in data) || (data.darkMode is bool)) &&
+             (!('notificationSettings' in data) || (data.notificationSettings is map)) &&
+             (!('privacySettings' in data) || (data.privacySettings is map)) &&
+             (!('appPreferences' in data) || (data.appPreferences is map)) &&
              (!('targetWeight' in data) || (data.targetWeight is number && data.targetWeight > 0)) &&
              (!('age' in data) || (data.age is number && data.age >= 0 && data.age < 120)) &&
              (!('weight' in data) || (data.weight is number && data.weight > 0)) &&

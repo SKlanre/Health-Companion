@@ -1,8 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
   signInWithCredential,
   signInAnonymously, 
   createUserWithEmailAndPassword,
@@ -20,7 +18,6 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
 
 export enum OperationType {
   CREATE = 'create',
@@ -85,9 +82,7 @@ async function testConnection() {
 testConnection();
 
 export { 
-  signInWithPopup, 
   signInWithCredential,
-  GoogleAuthProvider,
   signInAnonymously, 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,

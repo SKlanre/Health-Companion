@@ -22,6 +22,7 @@ export interface UserProfile {
   mealPrepStyle: MealPrepStyle;
   fruitConsumption: FruitConsumption;
   dailyBudget: number;
+  currency?: string;
   targetWeight?: number;
   streak: number;
   lastActivityDate?: string;
@@ -52,6 +53,45 @@ export interface UserProfile {
   lastMealPreloadTimestamp?: string;
   darkMode?: boolean;
   hasAcceptedTerms?: boolean;
+  notificationSettings?: NotificationSettings;
+  privacySettings?: PrivacySettings;
+  appPreferences?: AppPreferences;
+}
+
+export interface NotificationSettings {
+  goalCelebrations: boolean;       // Notify immediately when Daily Calorie, Water, Exercise, or Step goals are reached
+  waterReminders: boolean;         // Hydration reminder checks
+  mealReminders: boolean;          // Breakfast, Lunch, Dinner logging prompts
+  streakAlerts: boolean;           // Daily streak saver reminder
+  browserNotifications: boolean;   // Web Push / Browser desktop notification permissions
+  soundEnabled: boolean;           // Celebration sound chime on goal unlock
+  vibrationEnabled: boolean;       // Haptic vibration feedback
+}
+
+export interface PrivacySettings {
+  shareGoalsPublicly: boolean;     // Share goal completions in community feed
+  anonymousCommunity: boolean;     // Post anonymously with alias instead of full name
+  aiPersonalization: boolean;      // Allow AI nutritionist to analyze meal history
+  analyticsEnabled: boolean;       // Anonymous usage performance diagnostics
+}
+
+export interface AppPreferences {
+  theme: 'light' | 'dark' | 'system';
+  timeFormat: '12h' | '24h';
+  startOfWeek: 'sunday' | 'monday';
+  compactCards: boolean;
+  autoCelebrateGoals: boolean;
+}
+
+export interface GoalAlertEvent {
+  id: string;
+  type: 'calories' | 'water' | 'exercise' | 'steps' | 'streak' | 'custom';
+  title: string;
+  message: string;
+  timestamp: string; // ISO string
+  value?: number;
+  goal?: number;
+  read?: boolean;
 }
 
 export interface DailyStats {

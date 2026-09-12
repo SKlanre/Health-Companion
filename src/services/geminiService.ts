@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { UserProfile, DailyStats, FoodLogEntry, WorkoutEnvironment } from "../types";
+import { getCurrencyForLocation, getCurrencyPromptGuidance } from "../lib/currencies";
 
 // Support both AI Studio backend server, direct client, and external deployments like Vercel
 const getClientApiKey = (): string => {
@@ -139,34 +140,121 @@ function getClientFallbackWorkout(remainingMinutes: number, profile: UserProfile
 > **Pro-tip:** Maintain an engaged core, neutral spine, and steady nasal breathing rhythm throughout each repetition. Hydrate with water right after!`;
 }
 
-function getClientFallbackDailyMeals(remainingCalories: number) {
+function getClientFallbackDailyMeals(remainingCalories: number, profile?: UserProfile | null) {
   const total = Math.max(1200, remainingCalories || 2000);
   const bCals = Math.round(total * 0.25);
   const lCals = Math.round(total * 0.35);
   const dCals = Math.round(total * 0.30);
   const sCals = Math.max(50, total - (bCals + lCals + dCals));
 
+  const currency = getCurrencyForLocation(profile?.location || '', profile?.currency);
+
+  if (currency.code === 'NGN') {
+    return {
+      breakfast: {
+        content: `# Boiled Yam & Garden Egg Stew\n- 3 slices boiled white yam\n- Scrambled egg and garden egg stew with onions, tomatoes, and peppers\n- Est. cost: ~${currency.symbol}1,500\n\n**Key Benefit:** Sustained complex carbohydrates paired with choline and clean protein for a focused morning.`,
+        calories: bCals,
+      },
+      lunch: {
+        content: `# Smoky Jollof Rice with Grilled Chicken & Dodo\n- Savory long-grain jollof rice cooked in rich pepper-tomato broth\n- 1 spiced grilled chicken breast\n- Steamed cabbage and baked sweet plantain\n- Est. cost: ~${currency.symbol}2,500\n\n**Key Benefit:** High-protein muscle recovery paired with vibrant lycopene and complex energy.`,
+        calories: lCals,
+      },
+      dinner: {
+        content: `# Fresh Catfish Pepper Soup with Unripe Plantain\n- Simmered fresh catfish in aromatic uziza and uda pepper broth\n- 1 sliced boiled green plantain\n- Est. cost: ~${currency.symbol}2,000\n\n**Key Benefit:** Anti-inflammatory native herbs and omega-3 fatty acids that promote light digestion before sleep.`,
+        calories: dCals,
+      },
+      snacks: {
+        content: `# Roasted Plantain (Boli) with Crunchy Groundnuts\n- Half portion roasted ripe plantain\n- Handful of unsalted roasted Nigerian groundnuts\n- Est. cost: ~${currency.symbol}500\n\n**Key Benefit:** Healthy plant fats and dietary fiber that stabilize late afternoon blood sugar.`,
+        calories: sCals,
+      },
+    };
+  }
+
+  if (currency.code === 'GHS') {
+    return {
+      breakfast: {
+        content: `# Hausa Koko with Koose & Boiled Egg\n- Warm spiced millet porridge (Hausa koko) with ginger and cloves\n- 3 crispy bean cakes (koose) and 1 hard-boiled egg\n- Est. cost: ~${currency.symbol}20\n\n**Key Benefit:** Probiotic gut support and sustained low-glycemic morning energy from whole millet.`,
+        calories: bCals,
+      },
+      lunch: {
+        content: `# Ghanaian Jollof with Grilled Tilapia & Shito\n- Fragrant Ghanaian jollof rice simmered in savory tomato-onion sauce\n- Half grilled fresh tilapia with lime and herbs\n- Dash of authentic shito and fresh cucumber salad\n- Est. cost: ~${currency.symbol}45\n\n**Key Benefit:** High-grade lean marine protein rich in phosphorus and omega-3 fatty acids.`,
+        calories: lCals,
+      },
+      dinner: {
+        content: `# Kontomire Stew with Boiled Yam & Sweet Plantain\n- Nutrient-dense cocoyam leaf (kontomire) stew with agushie melon seeds and smoked fish\n- Boiled yam and ripe plantain cubes\n- Est. cost: ~${currency.symbol}30\n\n**Key Benefit:** Exceptional plant-based iron, folate, and magnesium for cellular restoration.`,
+        calories: dCals,
+      },
+      snacks: {
+        content: `# Spicy Baked Kelewele with Roasted Peanuts\n- Ginger and cayenne spiced ripe plantain bites\n- Small handful of crunchy roasted peanuts\n- Est. cost: ~${currency.symbol}10\n\n**Key Benefit:** Potassium and heart-healthy monounsaturated fats that satisfy cravings.`,
+        calories: sCals,
+      },
+    };
+  }
+
+  if (currency.code === 'GBP') {
+    return {
+      breakfast: {
+        content: `# Scottish Porridge with Blueberries & Honey\n- 1/2 cup rolled jumbo Scottish oats in semi-skimmed or oat milk\n- 1 scoop whey or hemp protein, fresh blueberries, and raw honey\n- Est. cost: ~${currency.symbol}2.50\n\n**Key Benefit:** Heart-healthy beta-glucan fiber and steady slow-release glucose.`,
+        calories: bCals,
+      },
+      lunch: {
+        content: `# Jacket Potato with Tuna Sweetcorn & Herb Salad\n- 1 medium crisp-skinned baked potato\n- Skipjack tuna flakes with sweetcorn and light Greek yogurt dressing\n- Mixed baby greens and cucumber\n- Est. cost: ~${currency.symbol}4.50\n\n**Key Benefit:** Lean bioavailable protein with potassium and gut-friendly prebiotic fiber.`,
+        calories: lCals,
+      },
+      dinner: {
+        content: `# Pan-Roasted Salmon with Crushed New Potatoes\n- 5 oz pan-seared salmon fillet with sea salt and black pepper\n- Steamed baby new potatoes with dill\n- Steamed tenderstem broccoli and garden peas\n- Est. cost: ~${currency.symbol}6.50\n\n**Key Benefit:** Essential EPA/DHA fatty acids supporting joint mobility and overnight recovery.`,
+        calories: dCals,
+      },
+      snacks: {
+        content: `# Crisp English Apple with Cheddar or Almonds\n- 1 sliced Cox or Gala apple\n- Small wedge of mature cheddar or a handful of raw almonds\n- Est. cost: ~${currency.symbol}1.50\n\n**Key Benefit:** Pectin fiber and slow-digesting healthy fats that curb evening snacking.`,
+        calories: sCals,
+      },
+    };
+  }
+
+  if (currency.code === 'EUR') {
+    return {
+      breakfast: {
+        content: `# Mediterranean Herb & Feta Frittata\n- 2 organic eggs whisked with baby spinach, cherry tomatoes, and crumbled feta\n- 1 slice toasted artisan sourdough drizzled with extra virgin olive oil\n- Est. cost: ~${currency.symbol}3.00\n\n**Key Benefit:** High choline, vitamin K, and polyphenol antioxidants for clear mental focus.`,
+        calories: bCals,
+      },
+      lunch: {
+        content: `# Pan-Seared Chicken Paillard with Quinoa Tabbouleh\n- Tender grilled chicken breast with lemon and rosemary\n- 1/2 cup quinoa salad with flat-leaf parsley, cucumber, and tomatoes\n- Est. cost: ~${currency.symbol}6.50\n\n**Key Benefit:** Complete essential amino acids and anti-inflammatory phytonutrients.`,
+        calories: lCals,
+      },
+      dinner: {
+        content: `# Baked Cod Fillet with Roasted Provençal Vegetables\n- Fresh white cod fillet baked with oregano, garlic, and capers\n- Roasted courgettes, bell peppers, and baby potatoes\n- Est. cost: ~${currency.symbol}8.00\n\n**Key Benefit:** Light, easily digestible lean protein that promotes deep, restful sleep.`,
+        calories: dCals,
+      },
+      snacks: {
+        content: `# Greek Yogurt with Walnuts & Thyme Honey\n- 3/4 cup authentic strained Greek yogurt\n- Handful of walnut halves and a drizzle of local honey\n- Est. cost: ~${currency.symbol}2.00\n\n**Key Benefit:** Slow-release casein protein and plant omega-3 ALA.`,
+        calories: sCals,
+      },
+    };
+  }
+
+  // Default (US / Global)
   return {
     breakfast: {
-      content: `# Power Protein Oatmeal Bowl\n- 1/2 cup rolled oats cooked with unsweetened almond milk\n- 1 scoop vanilla whey or plant protein\n- 1 tbsp chia seeds & handful of fresh blueberries\n\n**Key Benefit:** Sustained morning energy and complex carbohydrates to fuel your day.`,
+      content: `# Power Protein Oatmeal Bowl\n- 1/2 cup rolled oats cooked with unsweetened almond milk\n- 1 scoop vanilla whey or plant protein\n- 1 tbsp chia seeds & handful of fresh blueberries\n- Est. cost: ~${currency.symbol}3.50\n\n**Key Benefit:** Sustained morning energy and complex carbohydrates to fuel your day.`,
       calories: bCals,
     },
     lunch: {
-      content: `# Mediterranean Grilled Chicken Bowl\n- 5 oz tender grilled chicken breast or seasoned tofu\n- 1/2 cup cooked quinoa with cucumber and cherry tomatoes\n- Light olive oil and lemon vinaigrette\n\n**Key Benefit:** Lean muscle synthesis combined with polyphenol-rich vegetables.`,
+      content: `# Mediterranean Grilled Chicken Bowl\n- 5 oz tender grilled chicken breast or seasoned tofu\n- 1/2 cup cooked quinoa with cucumber and cherry tomatoes\n- Light olive oil and lemon vinaigrette\n- Est. cost: ~${currency.symbol}7.50\n\n**Key Benefit:** Lean muscle synthesis combined with polyphenol-rich vegetables.`,
       calories: lCals,
     },
     dinner: {
-      content: `# Pan-Seared Salmon & Roasted Sweet Potato\n- 5 oz wild salmon filet with sea salt and black pepper\n- 1 medium roasted sweet potato\n- Steamed broccoli florets with garlic\n\n**Key Benefit:** Anti-inflammatory omega-3 fatty acids that support joint health and overnight recovery.`,
+      content: `# Pan-Seared Salmon & Roasted Sweet Potato\n- 5 oz wild salmon filet with sea salt and black pepper\n- 1 medium roasted sweet potato\n- Steamed broccoli florets with garlic\n- Est. cost: ~${currency.symbol}9.00\n\n**Key Benefit:** Anti-inflammatory omega-3 fatty acids that support joint health and overnight recovery.`,
       calories: dCals,
     },
     snacks: {
-      content: `# Greek Yogurt & Raw Almonds\n- 3/4 cup non-fat plain Greek yogurt\n- 12-15 raw almonds and a touch of cinnamon\n\n**Key Benefit:** Slow-digesting casein protein that curbs evening sugar cravings.`,
+      content: `# Greek Yogurt & Raw Almonds\n- 3/4 cup non-fat plain Greek yogurt\n- 12-15 raw almonds and a touch of cinnamon\n- Est. cost: ~${currency.symbol}2.00\n\n**Key Benefit:** Slow-digesting casein protein that curbs evening sugar cravings.`,
       calories: sCals,
     },
   };
 }
 
-function getClientFallbackSingleMeal(remainingCalories: number, mealType: string, totalDailyGoal: number = 2000) {
+function getClientFallbackSingleMeal(remainingCalories: number, mealType: string, totalDailyGoal: number = 2000, profile?: UserProfile | null) {
   const type = (mealType || 'lunch').toLowerCase();
   let target = Math.round(totalDailyGoal * 0.3);
   if (type === 'breakfast') target = Math.round(totalDailyGoal * 0.25);
@@ -177,32 +265,106 @@ function getClientFallbackSingleMeal(remainingCalories: number, mealType: string
     target = Math.min(target, remainingCalories);
   }
 
-  const mealPresets: Record<string, { title: string; bullets: string[]; benefit: string }> = {
+  const currency = getCurrencyForLocation(profile?.location || '', profile?.currency);
+
+  if (currency.code === 'NGN') {
+    const presets: Record<string, { title: string; bullets: string[]; benefit: string; cost: string }> = {
+      breakfast: {
+        title: 'Boiled Yam & Egg Sauce with Garden Eggs',
+        bullets: ['3 slices tender boiled white yam', 'Scrambled eggs simmered with chopped tomatoes, onions, and garden eggs', 'Light touch of healthy vegetable oil'],
+        benefit: 'Rich complex carbohydrates and clean protein for sustained focus.',
+        cost: `~${currency.symbol}1,500`,
+      },
+      lunch: {
+        title: 'Authentic Smoky Jollof Rice with Grilled Chicken',
+        bullets: ['Long-grain parboiled rice cooked in savory tomato-pepper paste', '1 seasoned grilled chicken quarter', 'Side of steamed cabbage, carrots, and baked plantain'],
+        benefit: 'Optimal protein-to-carb ratio for midday physical stamina and recovery.',
+        cost: `~${currency.symbol}2,500`,
+      },
+      dinner: {
+        title: 'Light Fresh Fish Pepper Soup with Plantain',
+        bullets: ['Fresh simmered catfish in aromatic uziza and uda pepper broth', '1 boiled unripe green plantain sliced'],
+        benefit: 'Digestive-friendly anti-inflammatory native broth and sleep-promoting omega-3s.',
+        cost: `~${currency.symbol}2,000`,
+      },
+      snack: {
+        title: 'Roasted Boli with Crunchy Groundnuts',
+        bullets: ['Half piece roasted ripe plantain', 'Small handful of roasted unsalted groundnuts'],
+        benefit: 'Heart-healthy unsaturated fats and slow-burning natural fiber.',
+        cost: `~${currency.symbol}500`,
+      },
+    };
+    const s = presets[type] || presets.lunch;
+    return {
+      content: `# ${s.title}\n${s.bullets.map((b) => `- ${b}`).join('\n')}\n- Est. cost: ${s.cost}\n\n**Key Benefit:** ${s.benefit}`,
+      calories: target,
+    };
+  }
+
+  if (currency.code === 'GHS') {
+    const presets: Record<string, { title: string; bullets: string[]; benefit: string; cost: string }> = {
+      breakfast: {
+        title: 'Spiced Hausa Koko with Koose & Hard-Boiled Egg',
+        bullets: ['Warm spiced millet porridge (Hausa koko)', '3 golden bean cakes (koose) or 1 hard-boiled egg'],
+        benefit: 'Natural probiotics and gut-soothing spices that awaken digestion.',
+        cost: `~${currency.symbol}20`,
+      },
+      lunch: {
+        title: 'Ghanaian Jollof Rice with Grilled Tilapia & Shito',
+        bullets: ['Spiced tomato-onion rice', 'Fresh seasoned grilled tilapia with lemon', 'Side salad and a touch of black pepper shito'],
+        benefit: 'High-quality lean marine protein and essential trace minerals.',
+        cost: `~${currency.symbol}45`,
+      },
+      dinner: {
+        title: 'Kontomire Stew with Boiled Yam & Sweet Plantain',
+        bullets: ['Steamed cocoyam leaves stew with agushie melon seeds and smoked salmon', 'Boiled yam cubes'],
+        benefit: 'Supercharged with dietary iron, calcium, and restorative folate.',
+        cost: `~${currency.symbol}30`,
+      },
+      snack: {
+        title: 'Kelewele with Roasted Peanuts',
+        bullets: ['Ginger and chili seasoned baked plantain cubes', 'Handful of roasted peanuts'],
+        benefit: 'Quick potassium reload with heart-healthy monounsaturated fats.',
+        cost: `~${currency.symbol}10`,
+      },
+    };
+    const s = presets[type] || presets.lunch;
+    return {
+      content: `# ${s.title}\n${s.bullets.map((b) => `- ${b}`).join('\n')}\n- Est. cost: ${s.cost}\n\n**Key Benefit:** ${s.benefit}`,
+      calories: target,
+    };
+  }
+
+  const mealPresets: Record<string, { title: string; bullets: string[]; benefit: string; cost: string }> = {
     breakfast: {
       title: 'Avocado & Scrambled Egg Toast',
       bullets: ['2 organic eggs scrambled in a non-stick pan', '1 slice toasted whole grain artisan sourdough', '1/4 sliced ripe avocado with a dash of sea salt and pepper'],
       benefit: 'High in choline, clean protein, and monounsaturated healthy fats.',
+      cost: `~${currency.symbol}3.50`,
     },
     lunch: {
       title: 'Lemon Herb Grilled Chicken Salad',
       bullets: ['5 oz grilled chicken breast strips', 'Mixed leafy greens, cucumbers, and cherry tomatoes', '1 tbsp extra virgin olive oil vinaigrette'],
       benefit: 'Low glycemic, fiber-rich lunch that eliminates mid-day fatigue.',
+      cost: `~${currency.symbol}7.50`,
     },
     dinner: {
       title: 'Herb-Crusted Cod with Asparagus & Rice',
       bullets: ['6 oz baked white fish or cod fillet', '1/2 cup jasmine or brown rice', 'Steamed asparagus spears with lemon zest'],
       benefit: 'Lean, easily digestible protein ideal for high sleep quality.',
+      cost: `~${currency.symbol}8.50`,
     },
     snack: {
       title: 'Crisp Apple & Natural Almond Butter',
       bullets: ['1 crisp gala apple sliced', '1.5 tbsp creamy natural almond butter'],
       benefit: 'Balanced natural fiber and steady energy release.',
+      cost: `~${currency.symbol}2.00`,
     },
   };
 
   const selected = mealPresets[type] || mealPresets.lunch;
   return {
-    content: `# ${selected.title}\n${selected.bullets.map((b) => `- ${b}`).join('\n')}\n\n**Key Benefit:** ${selected.benefit}`,
+    content: `# ${selected.title}\n${selected.bullets.map((b) => `- ${b}`).join('\n')}\n- Est. cost: ${selected.cost}\n\n**Key Benefit:** ${selected.benefit}`,
     calories: target,
   };
 }
@@ -500,8 +662,10 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
     return serverResult;
   }
 
-  const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}. Location: ${profile.location || 'Global'}.` : '';
-  const prepText = profile ? `They usually ${profile.mealPrepStyle === 'self' ? 'cook for themselves' : profile.mealPrepStyle === 'others' ? 'have someone cook for them' : 'eat out'}. Daily budget: $${profile.dailyBudget || 20}. Fruit consumption: ${profile.fruitConsumption || 'daily'}.` : '';
+  const userLocation = profile?.location || '';
+  const currencyGuidance = getCurrencyPromptGuidance(userLocation, profile?.dailyBudget, profile?.currency);
+  const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}. Location: ${userLocation || 'Global'}.` : '';
+  const prepText = profile ? `They usually ${profile.mealPrepStyle === 'self' ? 'cook for themselves' : profile.mealPrepStyle === 'others' ? 'have someone cook for them' : 'eat out'}. Fruit consumption: ${profile.fruitConsumption || 'daily'}.` : '';
   const today = new Date().toDateString();
 
   try {
@@ -509,14 +673,17 @@ export const suggestDailyMeals = async (remainingCalories: number, profile: User
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite',
       contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a total daily goal of ${totalDailyGoal} kcal. ${goalText} ${prepText}
-Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack. 
+
+${currencyGuidance}
+
+Suggest a full day's meal plan including Breakfast, Lunch, Dinner, and a Snack, tailored specifically to their regional location and ingredients.
 
 CRITICAL CALORIE RULE:
 The SUM of calories for all 4 suggested meals (Breakfast + Lunch + Dinner + Snack) MUST closely equal ${remainingCalories} kcal.
 
 Format the response as a JSON object with keys 'breakfast', 'lunch', 'dinner', and 'snacks'. 
 Each value should be an object with 'content' (Markdown string) and 'calories' (integer):
-- content: Use a # Heading for the meal name, bullet points for key ingredients, and one key benefit in bold.
+- content: Use a # Heading for the meal name, bullet points for key ingredients (including estimated price/cost strictly in their local currency), and one key benefit in bold.
 - calories: The exact calorie count for this meal.`,
       config: {
         temperature: 0.7,
@@ -524,10 +691,10 @@ Each value should be an object with 'content' (Markdown string) and 'calories' (
       },
     });
 
-    return cleanAndParseJson(response.text, getClientFallbackDailyMeals(remainingCalories));
+    return cleanAndParseJson(response.text, getClientFallbackDailyMeals(remainingCalories, profile));
   } catch (err) {
     console.warn("Client suggestDailyMeals fallback:", err);
-    return getClientFallbackDailyMeals(remainingCalories);
+    return getClientFallbackDailyMeals(remainingCalories, profile);
   }
 };
 
@@ -542,6 +709,8 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
     return serverResult;
   }
 
+  const userLocation = profile?.location || '';
+  const currencyGuidance = getCurrencyPromptGuidance(userLocation, profile?.dailyBudget, profile?.currency);
   const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}.` : '';
   const today = new Date().toDateString();
   const excludeText = excludeItems.length > 0 ? `\n\nCRITICAL: Do NOT suggest anything similar to these previous meals: ${excludeItems.join(', ')}.` : '';
@@ -556,12 +725,14 @@ export const suggestMeal = async (remainingCalories: number, profile: UserProfil
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite',
       contents: `Today is ${today}. The user has ${remainingCalories} calories remaining today out of a ${totalDailyGoal} kcal goal.
-Suggest a healthy ${mealType} that is around ${Math.round(targetCalories)} kcal. 
+Suggest a healthy ${mealType} that is around ${Math.round(targetCalories)} kcal, tailored to what is authentic and accessible in their region.
+
+${currencyGuidance}
 ${goalText} 
 ${excludeText}
 
 Format the response as a JSON object:
-- content: Markdown string with # Heading, bullet points, and one key benefit in bold.
+- content: Markdown string with # Heading, bullet points for key ingredients (including estimated price/cost strictly in their local currency), and one key benefit in bold.
 - calories: The exact calorie count (integer).`,
       config: {
         temperature: 0.7,
@@ -569,10 +740,10 @@ Format the response as a JSON object:
       },
     });
 
-    return cleanAndParseJson(response.text, getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal));
+    return cleanAndParseJson(response.text, getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal, profile));
   } catch (err) {
     console.warn("Client suggestMeal fallback:", err);
-    return getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal);
+    return getClientFallbackSingleMeal(remainingCalories, mealType, totalDailyGoal, profile);
   }
 };
 
@@ -587,7 +758,10 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
     return serverResult.text;
   }
 
-  const prepText = `Meal Prep: ${profile.mealPrepStyle || 'standard'}, Fruit: ${profile.fruitConsumption || 'daily'}, Budget: $${profile.dailyBudget || 20}/day.`;
+  const userLocation = profile.location || '';
+  const currencyInfo = getCurrencyForLocation(userLocation, profile.currency);
+  const budget = profile.dailyBudget || currencyInfo.defaultDailyBudget;
+  const prepText = `Meal Prep: ${profile.mealPrepStyle || 'standard'}, Fruit: ${profile.fruitConsumption || 'daily'}, Budget: ${currencyInfo.symbol}${budget.toLocaleString()} (${currencyInfo.name})/day.`;
   const recentFoodContext = recentLogs.length > 0 
     ? `\n\nRecent meals logged by the user include: ${recentLogs.slice(0, 5).map(l => `${l.name} (${l.calories} kcal, notes: ${l.analysis || 'none'})`).join(', ')}.`
     : "";
@@ -598,12 +772,12 @@ export const generateGoalSteps = async (profile: UserProfile, stats: DailyStats,
       model: 'gemini-3.1-flash-lite',
       contents: `The user is a ${profile.age} year old ${profile.gender} with a goal to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}. 
 Current stats: Weight: ${profile.weight}lbs, Height: ${profile.height}cm, Activity Level: ${profile.activityLevel ? profile.activityLevel.replace('_', ' ') : 'moderate'}.
-Location: ${profile.location || 'Global'}.
+Location: ${userLocation || 'Global'}. Currency: ${currencyInfo.name} (${currencyInfo.symbol}).
 Workout Environment: ${profile.workoutEnvironment || 'anywhere'}.
 ${prepText}${recentFoodContext}
 Today's progress: ${stats.calories}/${stats.caloriesGoal} kcal, ${stats.steps}/${stats.stepsGoal} steps, ${stats.exercise}/${stats.exerciseGoal} min exercise.
 
-Provide 3 actionable, highly specific "Next Steps" or diet advice items. 
+Provide 3 actionable, highly specific "Next Steps" or diet advice items. If mentioning grocery costs or meal budget, use ${currencyInfo.name} (${currencyInfo.symbol}).
 Format using Markdown: bulleted list with emojis, bold text for key actions.`,
       config: {
         temperature: 0.8,
@@ -660,6 +834,8 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
     return serverResult;
   }
 
+  const userLocation = profile?.location || '';
+  const currencyGuidance = getCurrencyPromptGuidance(userLocation, profile?.dailyBudget, profile?.currency);
   const goalText = profile ? `The user's goal is to ${profile.goal ? profile.goal.replace('_', ' ') : 'stay fit'}.` : '';
   const recentMeals = foodLog.length > 0 
     ? `Recent meals today: ${foodLog.map(m => `${m.name} (${m.calories} kcal)`).join(', ')}.` 
@@ -672,16 +848,18 @@ export const processVoiceMeal = async (transcription: string, stats: DailyStats,
       contents: `The user said: "${transcription}". 
 Evaluate the user's intent. They might be:
 1. Logging a meal (e.g., "I just had a burger and fries").
-2. Asking a question or seeking advice (e.g., "Is this healthy?", "What should I eat for dinner?").
+2. Asking a question or seeking advice (e.g., "Is this healthy?", "What should I eat for dinner?", "What can I eat on my budget?").
 3. Expressing a concern or pattern (e.g., "I've been eating too many carbs lately").
 
 User profile: ${goalText}
 Current day context: ${stats.calories}/${stats.caloriesGoal} kcal consumed.
 ${recentMeals}
 
+${currencyGuidance}
+
 Provide a helpful, conversational, and PROACTIVE response. 
 - If they are logging a meal: Extract the info AND give a brief, supportive comment or tip related to their goal.
-- If they are asking a question: Answer it thoroughly and intelligently based on their personal data and history.
+- If they are asking a question or seeking meal recommendations/food budget advice: Answer it thoroughly and intelligently based on their personal data, location, and quote any prices/costs strictly in their local currency.
 - If they express a concern: Analyze their recent history (if provided) and offer constructive feedback.
 
 CRITICAL: ALWAYS provide a conversational response in the "response" field. Do not leave it empty.
