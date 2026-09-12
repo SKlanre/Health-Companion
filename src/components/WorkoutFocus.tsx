@@ -17,6 +17,7 @@ import {
 import { UserProfile, DailyStats, FoodLogEntry, WorkoutEnvironment } from '../types';
 import { recommendFocusArea, suggestWorkout } from '../services/geminiService';
 import { auth, db, doc, setDoc } from '../firebase';
+import { isTodayFitnessDay, getFitnessDayStr } from '../lib/dateUtils';
 
 interface Props {
   userProfile: UserProfile | null;
@@ -50,29 +51,8 @@ const COLOR_MAP: { [key: string]: { bg: string, text: string, border: string } }
   yellow: { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-500', border: 'hover:border-yellow-200 dark:hover:border-yellow-900' },
 };
 
-// Check if a timestamp is from the current calendar day
-const isToday = (timestamp?: string): boolean => {
-  if (!timestamp) return false;
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    return (
-      date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth() &&
-      date.getDate() === now.getDate()
-    );
-  } catch {
-    return false;
-  }
-};
-
-const getTodayDateKey = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
 const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResult, onUpdateProfile }) => {
-  const todayKey = useMemo(() => getTodayDateKey(), []);
+  const todayKey = useMemo(() => getFitnessDayStr(), [userProfile?.lastStatsResetDate]);
   const storageKey = useMemo(() => {
     const uid = auth.currentUser?.uid || 'guest';
     return `fitai_fixed_workouts_${uid}_${todayKey}`;
@@ -107,7 +87,7 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
     if (userProfile?.preloadedFocusAreaRecommendation) {
       if (typeof userProfile.preloadedFocusAreaRecommendation === 'object') {
         const rec = userProfile.preloadedFocusAreaRecommendation;
-        if (!rec.timestamp || isToday(rec.timestamp)) {
+        if (isTodayFitnessDay(rec.timestamp)) {
           return { area: rec.area, reason: rec.reason };
         }
       } else if (typeof userProfile.preloadedFocusAreaRecommendation === 'string') {
@@ -126,16 +106,26 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Sync workouts from userProfile when available and valid for today
+  // Sync workouts and recommendations from userProfile when available and valid for today
   useEffect(() => {
     if (!userProfile) return;
+
+    // Daily reset check: if saved recommendation is from a past fitness day, clear it so new daily one generates
+    if (userProfile.preloadedFocusAreaRecommendation) {
+      const rec = typeof userProfile.preloadedFocusAreaRecommendation === 'object'
+        ? userProfile.preloadedFocusAreaRecommendation
+        : null;
+      if (rec && !isTodayFitnessDay(rec.timestamp)) {
+        setRecommendation(null);
+      }
+    }
 
     setCachedWorkouts(prev => {
       const updated = { ...prev };
       let changed = false;
 
       // 1. If userProfile has preloadedWorkouts for today
-      if (userProfile.preloadedWorkouts && isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+      if (userProfile.preloadedWorkouts && isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)) {
         Object.entries(userProfile.preloadedWorkouts).forEach(([key, workout]) => {
           if (workout && (!updated[key] || updated[key] !== workout)) {
             updated[key] = workout;
@@ -145,8 +135,7 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
       }
 
       // 2. If userProfile has preloadedWorkout for Full Body today (from daily preload)
-      if (userProfile.preloadedWorkout && 
-          (isToday(userProfile.lastMealPreloadTimestamp) || isToday(userProfile.lastWorkoutPreloadTimestamp))) {
+      if (userProfile.preloadedWorkout && isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)) {
         const envKey = `Full Body_${userProfile.workoutEnvironment || 'home'}`;
         if (!updated[envKey]) {
           updated[envKey] = userProfile.preloadedWorkout;
@@ -170,10 +159,10 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
     });
 
     // Sync recommendation if present on profile
-    if (userProfile.preloadedFocusAreaRecommendation && !recommendation) {
+    if (userProfile.preloadedFocusAreaRecommendation) {
       if (typeof userProfile.preloadedFocusAreaRecommendation === 'object') {
         const rec = userProfile.preloadedFocusAreaRecommendation;
-        if (!rec.timestamp || isToday(rec.timestamp)) {
+        if (isTodayFitnessDay(rec.timestamp)) {
           setRecommendation({ area: rec.area, reason: rec.reason });
         }
       } else if (typeof userProfile.preloadedFocusAreaRecommendation === 'string') {
@@ -185,7 +174,7 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
         }
       }
     }
-  }, [userProfile, storageKey, recommendation]);
+  }, [userProfile, storageKey, userProfile?.lastStatsResetDate]);
 
   // Initial load for focus recommendation if not yet generated today
   useEffect(() => {
@@ -204,17 +193,24 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
       if (result && result.area) {
         setRecommendation(result);
 
+        const nowIso = new Date().toISOString();
+        const recPayload = {
+          area: result.area,
+          reason: result.reason,
+          timestamp: nowIso
+        };
+
         // Persist to Firestore so it stays fixed for today across all visits
-        if (auth.currentUser) {
+        if (auth.currentUser && !auth.currentUser.uid.startsWith('guest_local_')) {
           const userDocRef = doc(db, 'users', auth.currentUser.uid);
           await setDoc(userDocRef, {
-            preloadedFocusAreaRecommendation: {
-              area: result.area,
-              reason: result.reason,
-              timestamp: new Date().toISOString()
-            }
+            preloadedFocusAreaRecommendation: recPayload
           }, { merge: true });
         }
+
+        onUpdateProfile?.({
+          preloadedFocusAreaRecommendation: recPayload
+        });
       }
     } catch (error) {
       console.error("Failed to get focus area recommendation", error);
@@ -248,7 +244,7 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
     }
     
     // 2. Check environment-specific key in profile
-    if (userProfile?.preloadedWorkouts?.[envKey] && isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+    if (userProfile?.preloadedWorkouts?.[envKey] && isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)) {
       return userProfile.preloadedWorkouts[envKey];
     }
 
@@ -261,12 +257,12 @@ const WorkoutFocus: React.FC<Props> = ({ userProfile, stats, foodLog, onShowResu
     if (area === 'Full Body') {
       if (userProfile?.preloadedWorkout && 
           (userProfile.workoutEnvironment === env || !userProfile.workoutEnvironment) &&
-          (isToday(userProfile.lastMealPreloadTimestamp) || isToday(userProfile.lastWorkoutPreloadTimestamp))) {
+          isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)) {
         return userProfile.preloadedWorkout;
       }
       if (userProfile?.preloadedWorkouts?.['Full Body'] && 
           (userProfile.workoutEnvironment === env || !userProfile.workoutEnvironment) &&
-          isToday(userProfile.lastWorkoutPreloadTimestamp)) {
+          isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)) {
         return userProfile.preloadedWorkouts['Full Body'];
       }
     }

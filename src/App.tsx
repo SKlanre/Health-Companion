@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Dashboard from './pages/Dashboard';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -66,7 +66,7 @@ import type { User } from './firebase';
 import { useStepCounter } from './hooks/useStepCounter';
 
 import { initializePayment, verifyPayment } from './services/paymentService';
-
+import { getFitnessDayStr, getMsUntilNextDayReset } from './lib/dateUtils';
 import { getCurrencyForLocation } from './lib/currencies';
 
 const App: React.FC = () => {
@@ -118,10 +118,67 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const { startTracking, stopTracking, isTracking } = useStepCounter(() => {
-    if (userProfile?.hasAcceptedTerms) {
-      handleUpdateStatSilently('steps', stats.steps + 1);
+  const pendingStepsSyncTimer = useRef<any>(null);
+  const latestStepsRef = useRef<number>(stats.steps);
+  useEffect(() => {
+    latestStepsRef.current = stats.steps;
+  }, [stats.steps]);
+
+  const handleStepDetected = useCallback(() => {
+    // Only track if user has accepted terms or is active
+    if (userProfile && !userProfile.hasAcceptedTerms) return;
+
+    setStats((prev) => {
+      const nextSteps = prev.steps + 1;
+      latestStepsRef.current = nextSteps;
+
+      // Check if step goal milestone is achieved
+      if (prev.stepsGoal > 0 && nextSteps >= prev.stepsGoal && prev.steps < prev.stepsGoal) {
+        const stepsAlert: GoalAlertEvent = {
+          id: `steps_goal_${Date.now()}`,
+          type: 'steps',
+          title: 'Daily Steps Goal Crushed! 👟',
+          message: `Incredible endurance! You conquered ${nextSteps.toLocaleString()} steps today.`,
+          timestamp: new Date().toISOString(),
+          value: nextSteps,
+          goal: prev.stepsGoal,
+        };
+        const notifSettings = userProfile?.notificationSettings || DEFAULT_NOTIFICATION_SETTINGS;
+        dispatchGoalCelebration(stepsAlert, notifSettings);
+        setActiveGoalAlert(stepsAlert);
+        setUnreadAlertCount((c) => c + 1);
+      }
+
+      return { ...prev, steps: nextSteps };
+    });
+
+    // Debounce Firestore sync so rapid footsteps don't spam network writes
+    if (pendingStepsSyncTimer.current) {
+      clearTimeout(pendingStepsSyncTimer.current);
     }
+    pendingStepsSyncTimer.current = setTimeout(async () => {
+      if (user && !user.uid.startsWith('guest_local_')) {
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, { stats: { steps: latestStepsRef.current } }, { merge: true });
+        } catch (err) {
+          console.warn('Silent steps sync to Firestore delayed:', err);
+        }
+      }
+    }, 3000);
+  }, [user, userProfile]);
+
+  const { 
+    startTracking, 
+    stopTracking, 
+    isTracking, 
+    isSupported: isMotionSupported, 
+    permissionStatus: motionPermissionStatus,
+    currentIntensity: motionIntensity,
+    simulateStep 
+  } = useStepCounter({
+    onStep: handleStepDetected,
+    enabled: Boolean(userProfile?.hasAcceptedTerms !== false),
   });
 
   // Payment Verification logic
@@ -160,15 +217,6 @@ const App: React.FC = () => {
       checkPayment();
     }
   }, [user, isAuthReady]);
-
-  // Start/Stop tracking based on terms
-  useEffect(() => {
-    if (userProfile?.hasAcceptedTerms && !isTracking) {
-      startTracking();
-    } else if (!userProfile?.hasAcceptedTerms && isTracking) {
-      stopTracking();
-    }
-  }, [userProfile?.hasAcceptedTerms, isTracking]);
 
   const handleUpdateStatSilently = async (key: keyof DailyStats, value: number) => {
     if (!user) return;
@@ -209,15 +257,8 @@ const App: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  // Helper for consistent "Scan Day" calculation (resets at 5:00 AM local time)
-  const getTodayStr = () => {
-    const now = new Date();
-    const localNow = new Date(now.getTime() - (5 * 60 * 60 * 1000));
-    const year = localNow.getFullYear();
-    const month = String(localNow.getMonth() + 1).padStart(2, '0');
-    const day = String(localNow.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  // Helper for consistent "Fitness Day" calculation (resets at 5:00 AM local time)
+  const getTodayStr = () => getFitnessDayStr();
 
   // Dynamic time-of-day greeting helper (Morning: 5am-12pm, Afternoon: 12pm-5pm, Evening: 5pm-5am)
   const getTimeGreeting = (): string => {
@@ -294,10 +335,32 @@ const App: React.FC = () => {
             steps: 0,
             exercise: 0
           };
+          // Reset daily stats AND clear yesterday's AI suggestions for the new fitness day
           await setDoc(userDocRef, { 
             stats: currentStats,
-            lastStatsResetDate: today 
+            lastStatsResetDate: today,
+            preloadedMeals: null,
+            lastMealPreloadTimestamp: null,
+            lastMealCaloriesAtGeneration: 0,
+            preloadedWorkout: null,
+            preloadedWorkouts: {},
+            preloadedFocusAreaRecommendation: null,
+            lastWorkoutPreloadTimestamp: null,
+            lastAiTip: null,
+            lastAiTipTimestamp: null,
           }, { merge: true });
+
+          // Clean local workout storage keys for past days
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i);
+              if (k && k.startsWith('fitai_fixed_workouts_') && !k.endsWith(today)) {
+                localStorage.removeItem(k);
+              }
+            }
+          } catch {
+            // ignore
+          }
         } else if (!lastResetDate) {
           // First time setup for reset date
           await setDoc(userDocRef, { lastStatsResetDate: today }, { merge: true });
@@ -305,8 +368,6 @@ const App: React.FC = () => {
 
         if (lastDate && lastDate !== today) {
           const now = new Date();
-          const localYesterday = new Date(now.getTime() - (29 * 60 * 60 * 1000)); // (24 + 5) hours back from now? No.
-          // Better: Calculate 'yesterday' by taking 'today' logic and subtracting another 24 hours.
           const yDate = new Date(now.getTime() - (5 * 60 * 60 * 1000) - (24 * 60 * 60 * 1000));
           const yYear = yDate.getFullYear();
           const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
@@ -346,6 +407,7 @@ const App: React.FC = () => {
           lastWorkoutPreloadTimestamp: data.lastWorkoutPreloadTimestamp,
           preloadedFocusAreaRecommendation: data.preloadedFocusAreaRecommendation,
           lastMealPreloadTimestamp: data.lastMealPreloadTimestamp,
+          lastMealCaloriesAtGeneration: data.lastMealCaloriesAtGeneration,
           darkMode: data.darkMode,
           targetWeight: data.targetWeight,
           currency: data.currency,
@@ -413,6 +475,115 @@ const App: React.FC = () => {
       unsubHistory();
     };
   }, [user, isAuthReady]);
+
+  // Active Day Rollover listener:
+  // When a new day begins (at 5:00 AM local time), automatically trigger the daily reset
+  // even if the user has the browser window open overnight without refreshing.
+  useEffect(() => {
+    let timerId: any = null;
+
+    const triggerDayRolloverCheck = async () => {
+      const today = getFitnessDayStr();
+      const currentResetDate = userProfile?.lastStatsResetDate;
+      if (currentResetDate && currentResetDate !== today) {
+        // Reset local stats
+        const resetStats: DailyStats = {
+          ...stats,
+          calories: 0,
+          water: 0,
+          steps: 0,
+          exercise: 0
+        };
+        setStats(resetStats);
+
+        // Reset local user profile AI suggestions
+        setUserProfile(prev => prev ? {
+          ...prev,
+          lastStatsResetDate: today,
+          preloadedMeals: undefined,
+          lastMealPreloadTimestamp: undefined,
+          lastMealCaloriesAtGeneration: 0,
+          preloadedWorkout: undefined,
+          preloadedWorkouts: {},
+          preloadedFocusAreaRecommendation: undefined,
+          lastWorkoutPreloadTimestamp: undefined,
+          lastAiTip: undefined,
+          lastAiTipTimestamp: undefined,
+        } : null);
+
+        // Clean local storage cached workouts for past days
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('fitai_fixed_workouts_') && !k.endsWith(today)) {
+              localStorage.removeItem(k);
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        // Archive previous day's stats and persist reset to Firestore for authenticated users
+        if (user && !user.uid.startsWith('guest_local_')) {
+          try {
+            const historyDocRef = doc(db, 'users', user.uid, 'dailyHistory', currentResetDate);
+            await setDoc(historyDocRef, {
+              ...stats,
+              date: currentResetDate
+            });
+
+            const userDocRef = doc(db, 'users', user.uid);
+            await setDoc(userDocRef, {
+              stats: resetStats,
+              lastStatsResetDate: today,
+              preloadedMeals: null,
+              lastMealPreloadTimestamp: null,
+              lastMealCaloriesAtGeneration: 0,
+              preloadedWorkout: null,
+              preloadedWorkouts: {},
+              preloadedFocusAreaRecommendation: null,
+              lastWorkoutPreloadTimestamp: null,
+              lastAiTip: null,
+              lastAiTipTimestamp: null,
+            }, { merge: true });
+          } catch (err) {
+            console.error("Failed to sync rollover reset to Firestore", err);
+          }
+        }
+      }
+    };
+
+    const scheduleNextReset = () => {
+      if (timerId) clearTimeout(timerId);
+      const msUntilReset = getMsUntilNextDayReset();
+      // Add 1s safety buffer
+      timerId = setTimeout(() => {
+        triggerDayRolloverCheck();
+        scheduleNextReset();
+      }, msUntilReset + 1000);
+    };
+
+    scheduleNextReset();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerDayRolloverCheck();
+      }
+    };
+
+    window.addEventListener('focus', triggerDayRolloverCheck);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Periodic check every 30 seconds
+    const intervalId = setInterval(triggerDayRolloverCheck, 30000);
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      clearInterval(intervalId);
+      window.removeEventListener('focus', triggerDayRolloverCheck);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [userProfile?.lastStatsResetDate, user, stats]);
 
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -1129,6 +1300,15 @@ const App: React.FC = () => {
           incrementAiUsage={incrementAiUsage}
           onUpgrade={handleUpgrade}
           onUpdateProfile={handleUpdateProfile}
+          stepCounterState={{
+            isTracking,
+            isSupported: isMotionSupported,
+            permissionStatus: motionPermissionStatus,
+            currentIntensity: motionIntensity,
+            startTracking,
+            stopTracking,
+            simulateStep,
+          }}
         />;
       case 'progress':
         return <Progress stats={stats} history={dailyHistory} userProfile={userProfile} darkMode={darkMode} />;

@@ -51,6 +51,7 @@ export interface UserProfile {
     timestamp?: string;
   } | string;
   lastMealPreloadTimestamp?: string;
+  lastMealCaloriesAtGeneration?: number;
   darkMode?: boolean;
   hasAcceptedTerms?: boolean;
   notificationSettings?: NotificationSettings;

@@ -16,7 +16,9 @@ import {
   Scale,
   Plus,
   Minus,
-  Check
+  Check,
+  Activity,
+  Smartphone
 } from 'lucide-react';
 import { DailyStats, UserProfile, FoodLogEntry } from '../types';
 import { suggestWorkout, suggestDailyMeals, suggestMeal, generateGoalSteps } from '../services/geminiService';
@@ -26,6 +28,7 @@ import ReactMarkdown from 'react-markdown';
 import { BrandLogo } from '../components/BrandLogo';
 import FoodAssistant from '../components/FoodAssistant';
 import WorkoutFocus from '../components/WorkoutFocus';
+import { isTodayFitnessDay } from '../lib/dateUtils';
 
 import { getCurrencyForLocation } from '../lib/currencies';
 
@@ -40,6 +43,15 @@ interface Props {
   incrementAiUsage: () => Promise<boolean>;
   onUpgrade: () => void;
   onUpdateProfile?: (updatedProfile: Partial<UserProfile>) => void;
+  stepCounterState?: {
+    isTracking: boolean;
+    isSupported: boolean;
+    permissionStatus: 'granted' | 'denied' | 'prompt' | 'unsupported';
+    currentIntensity: number;
+    startTracking: () => Promise<boolean>;
+    stopTracking: () => void;
+    simulateStep: () => void;
+  };
 }
 
 const getTimePeriod = () => {
@@ -57,7 +69,19 @@ const getInitialMealType = (): string => {
   return 'snacks';
 };
 
-const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat, onLogMeal, onTriggerScan, maxDailyScans, incrementAiUsage, onUpgrade, onUpdateProfile }) => {
+const Dashboard: React.FC<Props> = ({ 
+  stats, 
+  userProfile, 
+  foodLog, 
+  onUpdateStat, 
+  onLogMeal, 
+  onTriggerScan, 
+  maxDailyScans, 
+  incrementAiUsage, 
+  onUpgrade, 
+  onUpdateProfile,
+  stepCounterState
+}) => {
   const [aiCoachTip, setAiCoachTip] = useState<string>(
     userProfile?.lastAiTip || `Generating your personalized ${getTimePeriod()} brief...`
   );
@@ -74,6 +98,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   const [selectedMealType, setSelectedMealType] = useState(getInitialMealType);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const lastProcessedFoodCount = useRef(foodLog.length);
+  const lastProcessedCalories = useRef(stats.calories);
+  const [isAdaptingMeals, setIsAdaptingMeals] = useState(false);
 
   const fetchCoachTip = async () => {
     if (!userProfile) return;
@@ -83,15 +109,20 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       const finalTip = tip || "Let's make today your best one yet! Start with some light movement.";
       setAiCoachTip(finalTip);
       
-      // Persist to Firestore
-      const userDocRef = doc(db, 'users', auth.currentUser!.uid);
-      await setDoc(userDocRef, { 
+      const nowIso = new Date().toISOString();
+      // Persist to Firestore if authenticated
+      if (auth.currentUser && !auth.currentUser.uid.startsWith('guest_local_')) {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, { 
+          lastAiTip: finalTip,
+          lastAiTipTimestamp: nowIso
+        }, { merge: true });
+      }
+
+      onUpdateProfile?.({
         lastAiTip: finalTip,
-        lastAiTipTimestamp: new Date().toISOString()
-      }, { merge: true });
-      
-      // After tip, we no longer preload automatically here. 
-      // The initializeDashboard logic in useEffect handles the stagger.
+        lastAiTipTimestamp: nowIso
+      });
     } catch (error) {
       setAiCoachTip("Ready to hit your goals today? Every step counts toward a better you.");
     } finally {
@@ -99,44 +130,87 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     }
   };
 
+  // Preloads AI meal suggestions (breakfast, lunch, dinner, snack)
+  // Re-runs on new day reset OR when user uploads/logs meals causing a significant change
   const preloadMeals = async (force = false) => {
-    if (!userProfile || !auth.currentUser) return;
+    if (!userProfile) return;
     
-    const lastPreloadDate = userProfile.lastMealPreloadTimestamp ? new Date(userProfile.lastMealPreloadTimestamp).toDateString() : '';
-    const today = new Date().toDateString();
-    
-    if (!force && userProfile.preloadedMeals && lastPreloadDate === today) return;
+    const isToday = isTodayFitnessDay(userProfile.lastMealPreloadTimestamp);
+    if (!force && userProfile.preloadedMeals && isToday) return;
 
     setIsPreloading(true);
     try {
-      const remaining = stats.caloriesGoal - stats.calories;
-      const calBuffer = remaining > 0 ? remaining : 500;
-
-      // Call 1: Meals
-      const mealResults = await suggestDailyMeals(calBuffer, userProfile, stats.caloriesGoal);
-      
-      // Call 2: Workout (Wait 2 seconds after meals to clear RPM bucket)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const workoutResult = await suggestWorkout(15, userProfile);
+      const remaining = Math.max(stats.caloriesGoal - stats.calories, 250);
+      const mealResults = await suggestDailyMeals(remaining, userProfile, stats.caloriesGoal);
       
       if (!mealResults) throw new Error("Failed to generate meals");
 
-      const userDocRef = doc(db, 'users', auth.currentUser.uid);
-      await setDoc(userDocRef, { 
+      const nowIso = new Date().toISOString();
+
+      if (auth.currentUser && !auth.currentUser.uid.startsWith('guest_local_')) {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, { 
+          preloadedMeals: mealResults,
+          lastMealPreloadTimestamp: nowIso,
+          lastMealCaloriesAtGeneration: stats.calories,
+        }, { merge: true });
+      }
+
+      onUpdateProfile?.({
         preloadedMeals: mealResults,
+        lastMealPreloadTimestamp: nowIso,
+        lastMealCaloriesAtGeneration: stats.calories,
+      });
+
+      lastProcessedCalories.current = stats.calories;
+      lastProcessedFoodCount.current = foodLog.length;
+    } catch (error) {
+      console.error("Failed to preload meals", error);
+    } finally {
+      setIsPreloading(false);
+    }
+  };
+
+  // Preloads daily workout recommendation once per day
+  // IMPORTANT: Changes every day upon daily reset, and remains locked throughout the day
+  const preloadDailyWorkout = async (force = false) => {
+    if (!userProfile) return;
+
+    const hasWorkoutForToday = Boolean(
+      (userProfile.preloadedWorkout || userProfile.preloadedWorkouts?.['Full Body']) &&
+      isTodayFitnessDay(userProfile.lastWorkoutPreloadTimestamp)
+    );
+
+    if (!force && hasWorkoutForToday) return;
+
+    try {
+      const workoutResult = await suggestWorkout(15, userProfile);
+      if (!workoutResult) return;
+
+      const nowIso = new Date().toISOString();
+
+      if (auth.currentUser && !auth.currentUser.uid.startsWith('guest_local_')) {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, { 
+          preloadedWorkout: workoutResult,
+          preloadedWorkouts: {
+            ...(userProfile.preloadedWorkouts || {}),
+            'Full Body': workoutResult,
+          },
+          lastWorkoutPreloadTimestamp: nowIso,
+        }, { merge: true });
+      }
+
+      onUpdateProfile?.({
         preloadedWorkout: workoutResult,
         preloadedWorkouts: {
           ...(userProfile.preloadedWorkouts || {}),
           'Full Body': workoutResult,
         },
-        lastMealPreloadTimestamp: new Date().toISOString(),
-        lastWorkoutPreloadTimestamp: new Date().toISOString(),
-      }, { merge: true });
+        lastWorkoutPreloadTimestamp: nowIso,
+      });
     } catch (error) {
-      console.error("Failed to preload meals", error);
-    } finally {
-      setIsPreloading(false);
+      console.error("Failed to preload daily workout", error);
     }
   };
 
@@ -203,7 +277,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   const handleLogPreloadedMeal = async () => {
     const currentMeal = userProfile?.preloadedMeals?.[selectedMealType as keyof typeof userProfile.preloadedMeals];
     if (currentMeal && typeof currentMeal !== 'string') {
-      onUpdateStat('calories', stats.calories + currentMeal.calories);
+      const mealName = `${selectedMealType.charAt(0).toUpperCase() + selectedMealType.slice(1)}: Suggested Plan`;
+      onLogMeal(mealName, currentMeal.calories, "Logged from AI daily meal suggestion");
       setAiModalContent(null);
     }
   };
@@ -280,13 +355,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   };
 
   const handleSuggestExercise = async () => {
-    const isToday = (dateStr?: string) => {
-      if (!dateStr) return false;
-      return new Date(dateStr).toDateString() === new Date().toDateString();
-    };
-
     const cachedFullBody = userProfile?.preloadedWorkouts?.['Full Body'] || userProfile?.preloadedWorkout;
-    if (cachedFullBody && (isToday(userProfile?.lastWorkoutPreloadTimestamp) || isToday(userProfile?.lastMealPreloadTimestamp))) {
+    if (cachedFullBody && isTodayFitnessDay(userProfile?.lastWorkoutPreloadTimestamp)) {
       setAiModalContent({ title: "Quick Workout Idea", content: cachedFullBody, isLoading: false });
       return;
     }
@@ -299,8 +369,8 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     try {
       const result = await suggestWorkout(15, userProfile);
       
-      // Save to lock it in
-      if (auth.currentUser) {
+      const nowIso = new Date().toISOString();
+      if (auth.currentUser && !auth.currentUser.uid.startsWith('guest_local_')) {
         const userDocRef = doc(db, 'users', auth.currentUser.uid);
         await setDoc(userDocRef, { 
           preloadedWorkout: result,
@@ -308,9 +378,18 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
             ...(userProfile?.preloadedWorkouts || {}),
             'Full Body': result,
           },
-          lastWorkoutPreloadTimestamp: new Date().toISOString()
+          lastWorkoutPreloadTimestamp: nowIso
         }, { merge: true });
       }
+
+      onUpdateProfile?.({
+        preloadedWorkout: result,
+        preloadedWorkouts: {
+          ...(userProfile?.preloadedWorkouts || {}),
+          'Full Body': result,
+        },
+        lastWorkoutPreloadTimestamp: nowIso
+      });
 
       setAiModalContent({ title: "Quick Workout Idea", content: result, isLoading: false });
     } catch (error) {
@@ -318,49 +397,74 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
     }
   };
 
+  // Daily Dashboard AI Initialization:
+  // Resets / preloads fresh recommendations whenever a new day starts
   useEffect(() => {
-    // Only fetch if we don't have a tip or if it's a new day
-    const lastTipDate = userProfile?.lastAiTipTimestamp ? new Date(userProfile.lastAiTipTimestamp).toDateString() : '';
-    const lastPreloadDate = userProfile?.lastMealPreloadTimestamp ? new Date(userProfile.lastMealPreloadTimestamp).toDateString() : '';
-    const today = new Date().toDateString();
-    
+    const isTipToday = isTodayFitnessDay(userProfile?.lastAiTipTimestamp);
+    const isMealToday = isTodayFitnessDay(userProfile?.lastMealPreloadTimestamp);
+    const isWorkoutToday = isTodayFitnessDay(userProfile?.lastWorkoutPreloadTimestamp);
+
     const initializeDashboard = async () => {
-      // 1. Fetch Tip first (Highest priority)
-      if (!userProfile?.lastAiTip || lastTipDate !== today) {
+      // 1. Fetch AI Coach Tip first if not yet generated today
+      if (!userProfile?.lastAiTip || !isTipToday) {
         await fetchCoachTip();
       }
       
-      // 2. Wait 3 seconds before preloading meals/workout to avoid RPM spikes
-      // even if tip didn't run (to be safe if multiple people open apps at once)
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // 2. Short stagger to prevent rate-limit bursts
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // 3. Preload everything else if needed
-      if (!userProfile?.preloadedMeals || lastPreloadDate !== today) {
-        preloadMeals();
+      // 3. Preload daily meals if not yet generated for today
+      if (!userProfile?.preloadedMeals || !isMealToday) {
+        await preloadMeals(false);
+      }
+
+      // 4. Preload daily workout recommendation once for the day if not yet generated today
+      // Changes every day upon reset, and remains locked throughout the day
+      if (!userProfile?.preloadedWorkout || !isWorkoutToday) {
+        await preloadDailyWorkout(false);
       }
     };
 
     initializeDashboard();
-  }, []);
+  }, [userProfile?.lastStatsResetDate]);
 
-  // Auto-refresh tips when food log changes
+  // Significant Meal Change Listener:
+  // Adapts AI meal suggestions and AI coach tip when users upload/log meals or make significant changes
+  // Note: The exercise recommendation is intentionally preserved and only changes once a day on reset
   useEffect(() => {
-    if (foodLog.length > lastProcessedFoodCount.current) {
-      // A new meal was added! Trigger a refresh.
-      // Wait a moment for Firestore to settle and stats to update if needed
-      const timer = setTimeout(() => {
-        fetchCoachTip();
-        // Also refresh meal plan suggestions since calories changed
-        preloadMeals(true);
-      }, 1500);
-      
-      lastProcessedFoodCount.current = foodLog.length;
-      return () => clearTimeout(timer);
-    } else if (foodLog.length < lastProcessedFoodCount.current) {
-      // Something was deleted, update count but don't necessarily call AI immediately
-      lastProcessedFoodCount.current = foodLog.length;
+    // Only adapt after today's initial meal suggestions exist
+    if (!userProfile?.preloadedMeals || !isTodayFitnessDay(userProfile?.lastMealPreloadTimestamp)) {
+      return;
     }
-  }, [foodLog.length]);
+
+    const baselineCalories = userProfile?.lastMealCaloriesAtGeneration ?? lastProcessedCalories.current;
+    const calorieDelta = Math.abs(stats.calories - baselineCalories);
+    const countDelta = Math.abs(foodLog.length - lastProcessedFoodCount.current);
+
+    // Significant meal change criteria:
+    // 1) Calorie difference >= 150 kcal (typical snack/meal portion or calorie adjustment)
+    // 2) At least 1 food log entry added or removed
+    const isSignificant = calorieDelta >= 150 || countDelta >= 1;
+
+    if (isSignificant) {
+      setIsAdaptingMeals(true);
+      const timer = setTimeout(async () => {
+        try {
+          await fetchCoachTip();
+          // Regenerates daily meal suggestions tailored to new remaining calories
+          // Notice: preloadDailyWorkout is NOT called, so workout remains stable for today!
+          await preloadMeals(true);
+        } finally {
+          setIsAdaptingMeals(false);
+        }
+      }, 1600);
+
+      lastProcessedFoodCount.current = foodLog.length;
+      lastProcessedCalories.current = stats.calories;
+
+      return () => clearTimeout(timer);
+    }
+  }, [foodLog.length, stats.calories, userProfile?.lastMealPreloadTimestamp]);
 
   const getMetricInfo = (key: keyof DailyStats | null) => {
     const isMetric = userProfile?.unitSystem === 'metric';
@@ -586,6 +690,14 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
           unit="steps"
           description="Goal:"
           onClick={() => handleMetricClick('steps')}
+          badge={
+            stepCounterState?.isTracking ? (
+              <span className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-[9px] font-black text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Sensor
+              </span>
+            ) : null
+          }
         />
         <MetricCircleCard 
           label="Exercise" 
@@ -635,14 +747,21 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
       {/* AI Recommendation Buttons */}
       <div className="space-y-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-black text-slate-900 dark:text-white">Meal Plan</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-black text-slate-900 dark:text-white">Meal Plan</h2>
+            {isAdaptingMeals && (
+              <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full border border-amber-500/20 animate-pulse">
+                Adapting to meals...
+              </span>
+            )}
+          </div>
           <button 
             onClick={() => preloadMeals(true)}
-            disabled={isPreloading}
+            disabled={isPreloading || isAdaptingMeals}
             className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5 hover:opacity-80 disabled:opacity-50"
           >
-            <RefreshCw className={`w-3 h-3 ${isPreloading ? 'animate-spin' : ''}`} />
-            Refresh All
+            <RefreshCw className={`w-3 h-3 ${isPreloading || isAdaptingMeals ? 'animate-spin' : ''}`} />
+            {isAdaptingMeals ? 'Adapting...' : 'Refresh All'}
           </button>
         </div>
         <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl rounded-[32px] p-2 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] border border-white/40 dark:border-slate-800 flex gap-1">
@@ -664,12 +783,16 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
         <RecommendButton 
           icon={<Sparkles className="w-5 h-5 text-indigo-500" />} 
           title={`Suggest a ${selectedMealType} based on my calories`}
-          subtitle={userProfile?.preloadedMeals?.[selectedMealType as keyof typeof userProfile.preloadedMeals] 
-            ? `${(userProfile.preloadedMeals[selectedMealType as keyof typeof userProfile.preloadedMeals] as any).calories} kcal • Ready to view` 
-            : "AI-powered meal recommendation"}
+          subtitle={
+            isAdaptingMeals 
+              ? "Adapting meal suggestions to your latest food log..." 
+              : userProfile?.preloadedMeals?.[selectedMealType as keyof typeof userProfile.preloadedMeals] 
+                ? `${(userProfile.preloadedMeals[selectedMealType as keyof typeof userProfile.preloadedMeals] as any).calories} kcal • Tailored for today` 
+                : "AI-powered meal recommendation"
+          }
           bgColor="bg-indigo-50 dark:bg-indigo-950/30"
           onClick={handleSuggestMeal}
-          isLoading={isPreloading}
+          isLoading={isPreloading || isAdaptingMeals}
         />
 
         {userProfile?.preloadedMeals?.[selectedMealType as keyof typeof userProfile.preloadedMeals] && (
@@ -782,6 +905,62 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
                 <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-1">Update {getMetricInfo(activeMetricKey).label}</h3>
                 <p className="text-slate-400 dark:text-slate-500 text-sm font-bold uppercase tracking-widest mb-6">Manual Entry</p>
                 
+                {activeMetricKey === 'steps' && (
+                  <div className="w-full mb-6 p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-800/60 text-left">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">Phone Accelerometer</span>
+                      </div>
+                      {stepCounterState?.isTracking ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
+                          Tracking
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                          Standby
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 leading-relaxed font-medium mb-3">
+                      {stepCounterState?.isTracking 
+                        ? "Steps are counted automatically as you walk with your phone." 
+                        : "Enable sensor permissions to automatically count steps as you move."}
+                    </p>
+
+                    <div className="flex gap-2">
+                      {!stepCounterState?.isTracking ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (stepCounterState?.startTracking) {
+                              await stepCounterState.startTracking();
+                            }
+                          }}
+                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                        >
+                          <Activity className="w-3.5 h-3.5" />
+                          Enable Auto-Tracking
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (stepCounterState?.simulateStep) {
+                              stepCounterState.simulateStep();
+                            }
+                          }}
+                          className="flex-1 py-2 px-3 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 dark:hover:bg-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                        >
+                          <Activity className="w-3.5 h-3.5 animate-pulse" />
+                          Test +1 Step (Simulate)
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-2 mb-8 bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl w-full">
                   {[
                     { id: 'add', label: 'Add', icon: <Plus className="w-3.5 h-3.5" /> },
@@ -921,11 +1100,16 @@ const Dashboard: React.FC<Props> = ({ stats, userProfile, foodLog, onUpdateStat,
   );
 };
 
-const MetricCircleCard = ({ label, value, goal, icon, color, description, unit, onClick }: any) => (
+const MetricCircleCard = ({ label, value, goal, icon, color, description, unit, onClick, badge }: any) => (
   <button 
     onClick={onClick}
     className="bg-white dark:bg-slate-900 rounded-[32px] p-5 shadow-sm border border-slate-50 dark:border-slate-800 flex flex-col items-center text-center transition-all active:scale-95 hover:border-slate-200 dark:hover:border-slate-700 relative group"
   >
+    {badge && (
+      <div className="absolute top-3 left-3 z-10">
+        {badge}
+      </div>
+    )}
     <div className="absolute top-4 right-4 text-slate-200 dark:text-slate-700 group-hover:text-slate-300 dark:group-hover:text-slate-600 transition-colors">
       <Edit2 className="w-3 h-3" />
     </div>
